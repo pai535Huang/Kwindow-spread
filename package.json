@@ -1,0 +1,11 @@
+{
+  "name": "kwindow-spread",
+  "version": "1.0.0",
+  "description": "KWin script package for Kwindow-spread.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

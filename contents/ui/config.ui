@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>KWin::KwindowSpreadConfigForm</class>
+ <widget class="QWidget" name="KWin::KwindowSpreadConfigForm">
+  <property name="windowTitle">
+   <string>Kwindow-spread</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QCheckBox" name="kcfg_KeepCurrentFocus">
+     <property name="text">
+      <string>Keep focus on the current window when a new window opens</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="kcfg_CreateVirtualDesktops">
+     <property name="text">
+      <string>Create a virtual desktop when the target desktop does not exist</string>
+     </property>
+     <property name="checked">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+    <item>
+     <widget class="QCheckBox" name="kcfg_RemoveEmptyVirtualDesktops">
+      <property name="text">
+       <string>Remove empty virtual desktops after windows close</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="sameDesktopGroupsBox">
+     <property name="title">
+      <string>Same-desktop window groups</string>
+     </property>
+     <layout class="QVBoxLayout" name="sameDesktopGroupsLayout">
+      <item>
+       <widget class="QLabel" name="sameDesktopGroupsLabel">
+        <property name="text">
+         <string>One group per line. Separate aliases in a group with English commas. Wildcards: * and ?.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPlainTextEdit" name="kcfg_SameDesktopWindowGroups">
+        <property name="kcfg_property" stdset="0">
+         <cstring>plainText</cstring>
+        </property>
+        <property name="placeholderText">
+         <string>wechat, WeChat
+qq
+virt-manager
+*preview*</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="advancedRulesBox">
+     <property name="title">
+      <string>Advanced source-desktop rules</string>
+     </property>
+     <layout class="QFormLayout" name="advancedRulesLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="titlesLabel">
+        <property name="text">
+         <string>Title regexes</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QPlainTextEdit" name="kcfg_AuxiliaryDialogTitles">
+        <property name="kcfg_property" stdset="0">
+         <cstring>plainText</cstring>
+        </property>
+        <property name="placeholderText">
+         <string>open project
+select folder</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="rolesLabel">
+        <property name="text">
+         <string>Role regexes</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QPlainTextEdit" name="kcfg_AuxiliaryRoles">
+        <property name="kcfg_property" stdset="0">
+         <cstring>plainText</cstring>
+        </property>
+        <property name="placeholderText">
+         <string>file.?chooser
+dialog</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="portalLabel">
+        <property name="text">
+         <string>Portal identifier regexes</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QPlainTextEdit" name="kcfg_PortalIdentifiers">
+        <property name="kcfg_property" stdset="0">
+         <cstring>plainText</cstring>
+        </property>
+        <property name="placeholderText">
+         <string>xdg-desktop-portal</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
