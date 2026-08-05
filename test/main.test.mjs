@@ -155,6 +155,26 @@ test('moves a freshly added window after the QTimer delay', () => {
   assert.equal(h.workspace.activeWindow, fresh);
 });
 
+test('does not cascade desktop creation for windows added within the move delay', () => {
+  const d0 = makeDesktop(0);
+  const h = loadScript({ windows: [], desktops: [d0] });
+  h.workspace.currentDesktop = d0;
+
+  const a = makeWindow({ title: 'A', desktops: [d0] });
+  const b = makeWindow({ title: 'B', desktops: [d0] });
+  h.loadWindow(a);
+  h.workspace.windowAdded.fire(a);
+  h.loadWindow(b);
+  h.workspace.windowAdded.fire(b);
+
+  h.QTimer.fireNext();
+  h.QTimer.fireNext();
+
+  assert.equal(h.workspace.desktops.length, 2);
+  assert.equal(a.desktops[0], d0);
+  assert.equal(b.desktops[0], h.workspace.desktops[1]);
+});
+
 test('creates a virtual desktop when the target desktop does not exist', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);

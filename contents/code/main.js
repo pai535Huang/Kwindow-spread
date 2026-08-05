@@ -288,7 +288,7 @@ function moveWindow(window, context) {
     window: normalizedWindow,
     desktops: desktops,
     windows: getAllWindows().filter(function (otherWindow) {
-      return otherWindow !== window;
+      return otherWindow !== window && !pendingMoves.has(otherWindow);
     }).map(toRuleWindow),
     sourceDesktop: context.desktop,
     rules: config.rules,
