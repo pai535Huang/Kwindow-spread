@@ -175,6 +175,42 @@ test('does not cascade desktop creation for windows added within the move delay'
   assert.equal(b.desktops[0], h.workspace.desktops[1]);
 });
 
+test('reads same-desktop groups from a multi-line config string', () => {
+  const h = loadScript({ config: { SameDesktopWindowGroups: 'wechat\nQQ' } });
+  assert.deepEqual([...h.context.config.rules.sameDesktopGroups], ['wechat', 'QQ']);
+});
+
+test('falls back to an empty list when the config value is missing', () => {
+  const h = loadScript({ config: {} });
+  assert.deepEqual([...h.context.config.rules.sameDesktopGroups], []);
+});
+
+test('groups a second window of the same app onto the first window desktop', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const h = loadScript({
+    windows: [],
+    desktops: [d0, d1, d2],
+    config: { SameDesktopWindowGroups: 'wechat\nQQ' },
+  });
+  h.workspace.currentDesktop = d0;
+
+  const first = makeWindow({ title: 'WeChat', resourceClass: 'wechat', desktops: [d1] });
+  h.loadWindow(first);
+  h.workspace.windowAdded.fire(first);
+  h.QTimer.fireAll();
+
+  const second = makeWindow({ title: 'WeChat', desktops: [d0] });
+  h.loadWindow(second);
+  h.workspace.windowAdded.fire(second);
+  h.QTimer.fireAll();
+
+  assert.equal(h.workspace.desktops.length, 3);
+  assert.equal(first.desktops[0], d1);
+  assert.equal(second.desktops[0], d1);
+});
+
 test('creates a virtual desktop when the target desktop does not exist', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);

@@ -176,7 +176,9 @@ export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
       printed.push(args.join(' '));
     },
     readConfig(key, fallback) {
-      return key in config ? config[key] : fallback;
+      if (key in config) return config[key];
+      if (Array.isArray(fallback)) return undefined;
+      return fallback;
     },
     QTimer,
     console,

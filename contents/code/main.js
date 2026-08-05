@@ -57,7 +57,7 @@ function readBoolConfig(name, fallback) {
 
 function readStringListConfig(name, fallback) {
   try {
-    return normalizeStringList(readConfig(name, fallback));
+    return normalizeStringList(readConfig(name, ''));
   } catch (error) {
     print('Kwindow-spread: failed to read ' + name + ': ' + error);
     return fallback.slice();
@@ -68,12 +68,11 @@ function normalizeStringList(value) {
   if (Array.isArray(value))
     return value.map(String).map(trimString).filter(Boolean);
 
-  if (typeof value === 'string') {
-    return value
-      .split(/\r?\n/)
-      .map(trimString)
-      .filter(Boolean);
-  }
+  if (typeof value === 'string')
+    return value.split(/\r?\n/).map(trimString).filter(Boolean);
+
+  if (value !== null && value !== undefined)
+    return String(value).split(/\r?\n/).map(trimString).filter(Boolean);
 
   return [];
 }
