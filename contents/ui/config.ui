@@ -36,7 +36,7 @@
     <item>
      <widget class="QGroupBox" name="sameDesktopGroupsBox">
      <property name="title">
-      <string>Same-desktop window groups</string>
+       <string>Windows that stay together on one desktop</string>
      </property>
      <layout class="QVBoxLayout" name="sameDesktopGroupsLayout">
       <item>
@@ -68,7 +68,7 @@ virt-manager
    <item>
     <widget class="QGroupBox" name="advancedRulesBox">
      <property name="title">
-      <string>Advanced source-desktop rules</string>
+       <string>Windows that stay on their original desktop</string>
      </property>
      <layout class="QFormLayout" name="advancedRulesLayout">
       <item row="0" column="0">

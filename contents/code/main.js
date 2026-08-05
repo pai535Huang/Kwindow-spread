@@ -1,5 +1,5 @@
 var WINDOW_CREATED_DELAY_MS = 500;
-var WINDOW_CLOSED_DELAY_MS = 150;
+var WINDOW_CLOSED_DELAY_MS = 300;
 
 var DEFAULT_RULES = {
   auxiliaryDialogTitles: [
@@ -44,6 +44,18 @@ function loadConfig() {
       sameDesktopGroups: readStringListConfig('SameDesktopWindowGroups', []),
     },
   };
+}
+
+function refreshConfig() {
+  config = loadConfig();
+}
+
+function triggerConfigRefresh() {
+  try {
+    callDBus('org.kde.KWin', '/KWin', 'org.kde.KWin', 'reconfigure');
+  } catch (error) {
+    print('Kwindow-spread: failed to trigger config reload: ' + error);
+  }
 }
 
 function readBoolConfig(name, fallback) {
@@ -278,6 +290,7 @@ function cancelScheduledMove(window) {
 }
 
 function moveWindow(window, context) {
+  refreshConfig();
   var normalizedWindow = toRuleWindow(window);
   if (!shouldTreatAsNormalWindow(normalizedWindow))
     return;
@@ -322,6 +335,7 @@ function scheduleEmptyDesktopCleanup(emptyDesktop, restorePreviousFocus) {
 }
 
 function cleanupEmptyDesktop(emptyDesktop, restorePreviousFocus) {
+  refreshConfig();
   if (!config.removeEmptyVirtualDesktops)
     return;
 
@@ -356,6 +370,7 @@ function onWindowAdded(window) {
   if (!window)
     return;
 
+  triggerConfigRefresh();
   trackWindow(window);
   scheduleMove(window, {
     desktop: getCurrentDesktop(),
@@ -373,6 +388,7 @@ function onWindowRemoved(window) {
   cancelScheduledMove(window);
   connectedWindows.delete(window);
   lastDesktopByWindow.delete(window);
+  triggerConfigRefresh();
   scheduleEmptyDesktopCleanup(emptyDesktop, restorePreviousFocus);
 }
 
