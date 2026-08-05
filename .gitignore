@@ -1,0 +1,6 @@
+# AI tooling artifacts
+docs/superpowers/
+.claude/
+.cursor/
+.opencode/
+AGENTS.md
