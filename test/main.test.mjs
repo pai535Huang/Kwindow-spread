@@ -180,6 +180,113 @@ test('reads same-desktop groups from a multi-line config string', () => {
   assert.deepEqual([...h.context.config.rules.sameDesktopGroups], ['wechat', 'QQ']);
 });
 
+test('reads source-desktop application rules from a multi-line config string', () => {
+  const h = loadScript({ config: { SourceDesktopApplications: 'spectacle\norg.kde.*' } });
+
+  assert.deepEqual([...h.context.config.rules.sourceDesktopApplications], ['spectacle', 'org.kde.*']);
+});
+
+test('keeps windows matching configured source-desktop application identifiers', () => {
+  const { context } = loadScript({ desktops: [] });
+  const source = makeDesktop(0);
+  const rules = {
+    ...context.DEFAULT_RULES,
+    sourceDesktopApplications: ['spectacle', 'org.kde.*', 'capture?tool'],
+  };
+
+  [
+    ruleWindow({ desktop: source, resourceClass: 'Spectacle' }),
+    ruleWindow({ desktop: source, appId: 'org.kde.gwenview' }),
+    ruleWindow({ desktop: source, resourceName: 'capture1tool' }),
+  ].forEach((window) => {
+    const decision = context.getPlacementDecision({
+      window,
+      desktops: [source, makeDesktop(1)],
+      windows: [ruleWindow({ desktop: source, title: 'Browser' })],
+      sourceDesktop: source,
+      rules,
+    });
+
+    assert.deepEqual({ kind: decision.kind, reason: decision.reason }, {
+      kind: 'stay',
+      reason: 'source-workspace-window',
+    });
+  });
+});
+
+test('does not use a window title to match a source-desktop application rule', () => {
+  const { context } = loadScript({ desktops: [] });
+  const desktops = [makeDesktop(0), makeDesktop(1), makeDesktop(2)];
+  const decision = context.getPlacementDecision({
+    window: ruleWindow({ desktop: desktops[0], title: 'Spectacle' }),
+    desktops,
+    windows: [ruleWindow({ desktop: desktops[1], title: 'Browser' })],
+    sourceDesktop: desktops[0],
+    rules: {
+      ...context.DEFAULT_RULES,
+      sourceDesktopApplications: ['spectacle'],
+    },
+  });
+
+  assert.equal(decision.kind, 'move');
+  assert.equal(decision.targetDesktop, desktops[2]);
+  assert.equal(decision.reason, 'next-after-last-non-empty');
+});
+
+test('treats a comma in a source-desktop application rule as a literal character', () => {
+  const { context } = loadScript({ desktops: [] });
+  const desktops = [makeDesktop(0), makeDesktop(1), makeDesktop(2)];
+  const decision = context.getPlacementDecision({
+    window: ruleWindow({ desktop: desktops[0], resourceClass: 'spectacle' }),
+    desktops,
+    windows: [ruleWindow({ desktop: desktops[1], title: 'Browser' })],
+    sourceDesktop: desktops[0],
+    rules: {
+      ...context.DEFAULT_RULES,
+      sourceDesktopApplications: ['spectacle, gwenview'],
+    },
+  });
+
+  assert.equal(decision.kind, 'move');
+  assert.equal(decision.targetDesktop, desktops[2]);
+  assert.equal(decision.reason, 'next-after-last-non-empty');
+});
+
+test('gives source-desktop application rules precedence over same-desktop groups', () => {
+  const { context } = loadScript({ desktops: [] });
+  const desktops = [makeDesktop(0), makeDesktop(1), makeDesktop(2)];
+  const decision = context.getPlacementDecision({
+    window: ruleWindow({ desktop: desktops[0], resourceClass: 'Spectacle' }),
+    desktops,
+    windows: [ruleWindow({ desktop: desktops[1], resourceClass: 'gwenview' })],
+    sourceDesktop: desktops[0],
+    rules: {
+      ...context.DEFAULT_RULES,
+      sourceDesktopApplications: ['spectacle'],
+      sameDesktopGroups: ['spectacle, gwenview'],
+    },
+  });
+
+  assert.deepEqual({ kind: decision.kind, reason: decision.reason }, {
+    kind: 'stay',
+    reason: 'source-workspace-window',
+  });
+});
+
+test('does not load obsolete advanced rule keys from stored config', () => {
+  const h = loadScript({
+    config: {
+      AuxiliaryDialogTitles: 'custom dialog',
+      AuxiliaryRoles: 'custom role',
+      PortalIdentifiers: 'custom portal',
+    },
+  });
+
+  assert.equal('auxiliaryDialogTitles' in h.context.config.rules, false);
+  assert.equal('auxiliaryRoles' in h.context.config.rules, false);
+  assert.equal('portalIdentifiers' in h.context.config.rules, false);
+});
+
 test('falls back to an empty list when the config value is missing', () => {
   const h = loadScript({ config: {} });
   assert.deepEqual([...h.context.config.rules.sameDesktopGroups], []);

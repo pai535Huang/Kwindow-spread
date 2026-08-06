@@ -23,6 +23,7 @@ var DEFAULT_RULES = {
   portalIdentifiers: [
     'xdg-desktop-portal',
   ],
+  sourceDesktopApplications: [],
   sameDesktopGroups: [],
 };
 
@@ -38,9 +39,7 @@ function loadConfig() {
     createVirtualDesktops: readBoolConfig('CreateVirtualDesktops', true),
     removeEmptyVirtualDesktops: readBoolConfig('RemoveEmptyVirtualDesktops', true),
     rules: {
-      auxiliaryDialogTitles: readStringListConfig('AuxiliaryDialogTitles', []),
-      auxiliaryRoles: readStringListConfig('AuxiliaryRoles', []),
-      portalIdentifiers: readStringListConfig('PortalIdentifiers', []),
+      sourceDesktopApplications: readStringListConfig('SourceDesktopApplications', []),
       sameDesktopGroups: readStringListConfig('SameDesktopWindowGroups', []),
     },
   };
@@ -552,6 +551,7 @@ function mergeRules(defaultRules, configuredRules) {
     auxiliaryDialogTitles: mergeStringArrays(defaultRules.auxiliaryDialogTitles, configuredRules.auxiliaryDialogTitles),
     auxiliaryRoles: mergeStringArrays(defaultRules.auxiliaryRoles, configuredRules.auxiliaryRoles),
     portalIdentifiers: mergeStringArrays(defaultRules.portalIdentifiers, configuredRules.portalIdentifiers),
+    sourceDesktopApplications: mergeStringArrays(defaultRules.sourceDesktopApplications, configuredRules.sourceDesktopApplications),
     sameDesktopGroups: mergeStringArrays(defaultRules.sameDesktopGroups, configuredRules.sameDesktopGroups),
   };
 }
@@ -566,7 +566,7 @@ function mergeStringArrays(defaultValues, configuredValues) {
 }
 
 function shouldStayOnSourceDesktop(window, rules) {
-  return isPortalWindow(window, rules) || hasAuxiliaryDialogRoleOrTitle(window, rules);
+  return isPortalWindow(window, rules) || hasAuxiliaryDialogRoleOrTitle(window, rules) || matchesSourceDesktopApplication(window, rules);
 }
 
 function isPortalWindow(window, rules) {
@@ -578,6 +578,10 @@ function hasAuxiliaryDialogRoleOrTitle(window, rules) {
     return true;
 
   return matchesPatterns([window.title || ''], compilePatterns(rules.auxiliaryDialogTitles));
+}
+
+function matchesSourceDesktopApplication(window, rules) {
+  return matchesPatterns(getWindowIdentifiers(window), compileUserWildcardPatterns(rules.sourceDesktopApplications));
 }
 
 function getSameGroupDesktop(window, windows, rules) {
@@ -688,6 +692,29 @@ function compileUserPatternGroup(group) {
   var aliases = group.split(',');
   for (var index = 0; index < aliases.length; index++) {
     var pattern = trimString(aliases[index]);
+    if (!pattern)
+      continue;
+
+    try {
+      compiled.push(new RegExp(wildcardToRegex(pattern), 'i'));
+    } catch (error) {
+      print('Kwindow-spread: ignoring invalid user pattern ' + pattern + ': ' + error);
+    }
+  }
+
+  return compiled;
+}
+
+function compileUserWildcardPatterns(patterns) {
+  if (!Array.isArray(patterns))
+    return [];
+
+  var compiled = [];
+  for (var index = 0; index < patterns.length; index++) {
+    if (typeof patterns[index] !== 'string')
+      continue;
+
+    var pattern = trimString(patterns[index]);
     if (!pattern)
       continue;
 
