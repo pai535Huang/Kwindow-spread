@@ -132,6 +132,19 @@ test('filters out non-normal top-level windows', () => {
   assert.equal(context.shouldTreatAsNormalWindow(ruleWindow({ title: 'App' })), true);
 });
 
+test('does not reconfigure KWin for titlebar menu window events', () => {
+  const desktop = makeDesktop(0);
+  const h = loadScript({ desktops: [desktop] });
+  const titlebarMenu = makeWindow({ normalWindow: false, popupMenu: true, desktops: [desktop] });
+
+  h.loadWindow(titlebarMenu);
+  h.workspace.windowAdded.fire(titlebarMenu);
+  h.unloadWindow(titlebarMenu);
+  h.workspace.windowRemoved.fire(titlebarMenu);
+
+  assert.deepEqual(h.callDBusCalls, []);
+});
+
 test('chooses the nearest non-empty desktop when an active desktop becomes empty', () => {
   const { context } = loadScript({ desktops: [] });
   const desktops = [makeDesktop(0), makeDesktop(1), makeDesktop(2), makeDesktop(3)];

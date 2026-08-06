@@ -49,14 +49,6 @@ function refreshConfig() {
   config = loadConfig();
 }
 
-function triggerConfigRefresh() {
-  try {
-    callDBus('org.kde.KWin', '/KWin', 'org.kde.KWin', 'reconfigure');
-  } catch (error) {
-    print('Kwindow-spread: failed to trigger config reload: ' + error);
-  }
-}
-
 function readBoolConfig(name, fallback) {
   try {
     return !!readConfig(name, fallback);
@@ -369,7 +361,6 @@ function onWindowAdded(window) {
   if (!window)
     return;
 
-  triggerConfigRefresh();
   trackWindow(window);
   scheduleMove(window, {
     desktop: getCurrentDesktop(),
@@ -387,7 +378,6 @@ function onWindowRemoved(window) {
   cancelScheduledMove(window);
   connectedWindows.delete(window);
   lastDesktopByWindow.delete(window);
-  triggerConfigRefresh();
   scheduleEmptyDesktopCleanup(emptyDesktop, restorePreviousFocus);
 }
 

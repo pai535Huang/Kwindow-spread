@@ -170,6 +170,7 @@ export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
   Object.defineProperty(QTimer, 'pending', { get: () => timers.length });
 
   const printed = [];
+  const callDBusCalls = [];
   const sandbox = {
     workspace,
     print(...args) {
@@ -181,6 +182,9 @@ export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
       return fallback;
     },
     QTimer,
+    callDBus(...args) {
+      callDBusCalls.push(args);
+    },
     console,
   };
 
@@ -192,6 +196,7 @@ export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
     workspace,
     QTimer,
     printed,
+    callDBusCalls,
     config,
     loadWindow(window) {
       workspace.windows.push(window);
