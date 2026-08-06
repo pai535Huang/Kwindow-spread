@@ -1,5 +1,6 @@
 # AI tooling artifacts
 docs/superpowers/
+.worktrees/
 .claude/
 .cursor/
 .opencode/
