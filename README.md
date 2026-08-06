@@ -62,6 +62,10 @@ Use `kpackagetool5` on Plasma 5.
 
 Open the configuration dialog from the KWin Scripts settings page.
 
+Saved settings are refreshed when the next window opens or closes, so the
+script does not need to be disabled and re-enabled. The refresh is limited to
+KWin scripts and does not globally reconfigure KWin.
+
 Same-desktop groups use one group per line. English commas separate different
 applications that belong to the same group. Matching is case-insensitive. `*`
 matches any sequence of characters and `?` matches one character.
