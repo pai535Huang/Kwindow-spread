@@ -1,12 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { loadScript, mainSource, makeDesktop, makeWindow, ruleWindow } from './helpers/kwin.js';
+
+const configSchemaSource = readFileSync(new URL('../contents/config/main.xml', import.meta.url), 'utf8');
+const configUiSource = readFileSync(new URL('../contents/ui/config.ui', import.meta.url), 'utf8');
 
 test('avoids JS features missing from the KWin QJSEngine', () => {
   assert.equal(mainSource.includes('.flatMap('), false, 'flatMap is missing from KWin QJSEngine');
   assert.equal(mainSource.includes('=>'), false, 'arrow functions are unsafe on older KWin engines');
   assert.equal(mainSource.includes('?.') , false, 'optional chaining is missing from KWin QJSEngine');
   assert.equal(mainSource.includes('??'), false, 'nullish coalescing is missing from KWin QJSEngine');
+});
+
+test('exposes only the new editable source-desktop application setting', () => {
+  assert.equal(configSchemaSource.includes('name="SourceDesktopApplications"'), true);
+  assert.equal(configUiSource.includes('name="kcfg_SourceDesktopApplications"'), true);
+
+  ['AuxiliaryDialogTitles', 'AuxiliaryRoles', 'PortalIdentifiers'].forEach((name) => {
+    assert.equal(configSchemaSource.includes(name), false);
+    assert.equal(configSchemaSource.includes(`kcfg_${name}`), false);
+    assert.equal(configUiSource.includes(name), false);
+    assert.equal(configUiSource.includes(`kcfg_${name}`), false);
+  });
 });
 
 test('leaves the first normal window on the source desktop', () => {

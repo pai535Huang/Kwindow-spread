@@ -66,61 +66,29 @@ virt-manager
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="advancedRulesBox">
+    <widget class="QGroupBox" name="sourceDesktopApplicationsBox">
      <property name="title">
-       <string>Windows that stay on their original desktop</string>
+      <string>Applications that stay on their original desktop</string>
      </property>
-     <layout class="QFormLayout" name="advancedRulesLayout">
-      <item row="0" column="0">
-       <widget class="QLabel" name="titlesLabel">
+     <layout class="QVBoxLayout" name="sourceDesktopApplicationsLayout">
+      <item>
+       <widget class="QLabel" name="sourceDesktopApplicationsLabel">
         <property name="text">
-         <string>Title regexes</string>
+         <string>One application per line. Matches app ID and WM_CLASS. Wildcards: * and ?.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
         </property>
        </widget>
       </item>
-      <item row="0" column="1">
-       <widget class="QPlainTextEdit" name="kcfg_AuxiliaryDialogTitles">
+      <item>
+       <widget class="QPlainTextEdit" name="kcfg_SourceDesktopApplications">
         <property name="kcfg_property" stdset="0">
          <cstring>plainText</cstring>
         </property>
         <property name="placeholderText">
-         <string>open project
-select folder</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="rolesLabel">
-        <property name="text">
-         <string>Role regexes</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QPlainTextEdit" name="kcfg_AuxiliaryRoles">
-        <property name="kcfg_property" stdset="0">
-         <cstring>plainText</cstring>
-        </property>
-        <property name="placeholderText">
-         <string>file.?chooser
-dialog</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="0">
-       <widget class="QLabel" name="portalLabel">
-        <property name="text">
-         <string>Portal identifier regexes</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="1">
-       <widget class="QPlainTextEdit" name="kcfg_PortalIdentifiers">
-        <property name="kcfg_property" stdset="0">
-         <cstring>plainText</cstring>
-        </property>
-        <property name="placeholderText">
-         <string>xdg-desktop-portal</string>
+         <string>spectacle
+org.kde.spectacle</string>
         </property>
        </widget>
       </item>

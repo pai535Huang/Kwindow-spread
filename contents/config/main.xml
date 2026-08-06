@@ -17,13 +17,7 @@
     <entry name="SameDesktopWindowGroups" type="string">
       <default></default>
     </entry>
-    <entry name="AuxiliaryDialogTitles" type="string">
-      <default></default>
-    </entry>
-    <entry name="AuxiliaryRoles" type="string">
-      <default></default>
-    </entry>
-    <entry name="PortalIdentifiers" type="string">
+    <entry name="SourceDesktopApplications" type="string">
       <default></default>
     </entry>
   </group>
