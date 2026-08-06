@@ -132,7 +132,7 @@ test('filters out non-normal top-level windows', () => {
   assert.equal(context.shouldTreatAsNormalWindow(ruleWindow({ title: 'App' })), true);
 });
 
-test('does not reconfigure KWin for titlebar menu window events', () => {
+test('refreshes script config without globally reconfiguring KWin for titlebar menu events', () => {
   const desktop = makeDesktop(0);
   const h = loadScript({ desktops: [desktop] });
   const titlebarMenu = makeWindow({ normalWindow: false, popupMenu: true, desktops: [desktop] });
@@ -142,7 +142,35 @@ test('does not reconfigure KWin for titlebar menu window events', () => {
   h.unloadWindow(titlebarMenu);
   h.workspace.windowRemoved.fire(titlebarMenu);
 
-  assert.deepEqual(h.callDBusCalls, []);
+  assert.deepEqual(h.callDBusCalls, [
+    ['org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'start'],
+    ['org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'start'],
+  ]);
+  assert.equal(h.callDBusCalls.some((call) => call.includes('/KWin') || call.includes('reconfigure')), false);
+});
+
+test('continues delayed placement when requesting a script config refresh throws', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const existing = makeWindow({ title: 'Browser', desktops: [d1] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
+  h.workspace.currentDesktop = d0;
+  h.workspace.activeWindow = existing;
+  h.context.callDBus = () => {
+    throw new Error('D-Bus unavailable');
+  };
+
+  const fresh = makeWindow({ title: 'Terminal', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.windowAdded.fire(fresh);
+
+  assert.equal(h.QTimer.pending, 1);
+  assert.match(h.printed.at(-1), /failed to refresh script config: Error: D-Bus unavailable/);
+
+  h.QTimer.fireAll();
+
+  assert.equal(fresh.desktops[0], d2);
 });
 
 test('chooses the nearest non-empty desktop when an active desktop becomes empty', () => {

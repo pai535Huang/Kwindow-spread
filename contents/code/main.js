@@ -49,6 +49,14 @@ function refreshConfig() {
   config = loadConfig();
 }
 
+function requestScriptConfigRefresh() {
+  try {
+    callDBus('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'start');
+  } catch (error) {
+    print('Kwindow-spread: failed to refresh script config: ' + error);
+  }
+}
+
 function readBoolConfig(name, fallback) {
   try {
     return !!readConfig(name, fallback);
@@ -361,6 +369,7 @@ function onWindowAdded(window) {
   if (!window)
     return;
 
+  requestScriptConfigRefresh();
   trackWindow(window);
   scheduleMove(window, {
     desktop: getCurrentDesktop(),
@@ -378,6 +387,7 @@ function onWindowRemoved(window) {
   cancelScheduledMove(window);
   connectedWindows.delete(window);
   lastDesktopByWindow.delete(window);
+  requestScriptConfigRefresh();
   scheduleEmptyDesktopCleanup(emptyDesktop, restorePreviousFocus);
 }
 
