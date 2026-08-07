@@ -256,6 +256,8 @@ function restoreFocus(context) {
 }
 
 var activeTimers = [];
+var emptyDesktopCleanupTimer = null;
+var restorePreviousFocusAfterCleanup = false;
 
 function scheduleTimer(callback, delayMs) {
   var timer = new QTimer();
@@ -380,36 +382,17 @@ function cleanupAllEmptyDesktops(restorePreviousFocus) {
   });
 }
 
-function scheduleEmptyDesktopCleanup(emptyDesktop, restorePreviousFocus) {
-  scheduleTimer(function () {
-    cleanupEmptyDesktop(emptyDesktop, restorePreviousFocus);
+function scheduleAllEmptyDesktopCleanup(restorePreviousFocus) {
+  restorePreviousFocusAfterCleanup = restorePreviousFocusAfterCleanup || !!restorePreviousFocus;
+  if (emptyDesktopCleanupTimer)
+    return;
+
+  emptyDesktopCleanupTimer = scheduleTimer(function () {
+    emptyDesktopCleanupTimer = null;
+    var shouldRestorePreviousFocus = restorePreviousFocusAfterCleanup;
+    restorePreviousFocusAfterCleanup = false;
+    cleanupAllEmptyDesktops(shouldRestorePreviousFocus);
   }, WINDOW_CLOSED_DELAY_MS);
-}
-
-function cleanupEmptyDesktop(emptyDesktop, restorePreviousFocus) {
-  refreshConfig();
-  if (!config.removeEmptyVirtualDesktops)
-    return;
-
-  var previousWindow = restorePreviousFocus ? getPreviousFocusWindow() : null;
-  if (previousWindow) {
-    activateWindow(previousWindow);
-    removeDesktopIfStillEmpty(emptyDesktop);
-    return;
-  }
-
-  var decision = getEmptyDesktopCleanupDecision({
-    emptyDesktop: emptyDesktop,
-    activeDesktop: getCurrentDesktop(),
-    desktops: getDesktops(),
-    windows: getAllWindows().map(toRuleWindow),
-  });
-
-  if (decision.kind === 'activate-and-remove')
-    activateDesktop(decision.targetDesktop);
-
-  if (decision.kind === 'activate-and-remove' || decision.kind === 'remove')
-    removeDesktopIfStillEmpty(decision.removeDesktop);
 }
 
 function removeDesktopIfStillEmpty(desktop) {
@@ -427,6 +410,7 @@ function onWindowAdded(window) {
 
   requestScriptConfigRefresh();
   trackWindow(window);
+  scheduleAllEmptyDesktopCleanup(false);
   scheduleMove(window, {
     desktop: getCurrentDesktop(),
     focusWindow: workspace.activeWindow || null,
@@ -437,14 +421,18 @@ function onWindowRemoved(window) {
   if (!window || !connectedWindows.has(window))
     return;
 
-  var emptyDesktop = lastDesktopByWindow.get(window) || getWindowDesktop(window);
   var restorePreviousFocus = focusMru[0] === window || workspace.activeWindow === window;
   removeFromFocusMru(window);
   cancelScheduledMove(window);
   connectedWindows.delete(window);
   lastDesktopByWindow.delete(window);
   requestScriptConfigRefresh();
-  scheduleEmptyDesktopCleanup(emptyDesktop, restorePreviousFocus);
+  scheduleAllEmptyDesktopCleanup(restorePreviousFocus);
+}
+
+function onWindowDesktopChanged(window) {
+  lastDesktopByWindow.set(window, getWindowDesktop(window));
+  scheduleAllEmptyDesktopCleanup(false);
 }
 
 function trackWindow(window) {
@@ -456,13 +444,13 @@ function trackWindow(window) {
 
   if (window.desktopsChanged && typeof window.desktopsChanged.connect === 'function') {
     window.desktopsChanged.connect(function () {
-      lastDesktopByWindow.set(window, getWindowDesktop(window));
+      onWindowDesktopChanged(window);
     });
   }
 
   if (window.desktopChanged && typeof window.desktopChanged.connect === 'function') {
     window.desktopChanged.connect(function () {
-      lastDesktopByWindow.set(window, getWindowDesktop(window));
+      onWindowDesktopChanged(window);
     });
   }
 
@@ -577,28 +565,6 @@ function getPlacementDecision(args) {
     kind: 'move',
     targetDesktop: args.desktops[args.desktops.length - 1] || args.sourceDesktop,
     reason: 'next-after-last-non-empty',
-  };
-}
-
-function getEmptyDesktopCleanupDecision(args) {
-  if (!args.emptyDesktop)
-    return { kind: 'none', reason: 'missing-empty-desktop' };
-
-  if (desktopHasNormalWindow(args.emptyDesktop, args.windows, null))
-    return { kind: 'none', reason: 'desktop-not-empty' };
-
-  if (args.emptyDesktop !== args.activeDesktop)
-    return { kind: 'remove', removeDesktop: args.emptyDesktop };
-
-  var emptyIndex = args.desktops.indexOf(args.emptyDesktop);
-  var targetDesktop = getNearestNonEmptyDesktop(args.desktops, args.windows, emptyIndex);
-  if (!targetDesktop)
-    return { kind: 'none', reason: 'no-non-empty-desktop' };
-
-  return {
-    kind: 'activate-and-remove',
-    targetDesktop: targetDesktop,
-    removeDesktop: args.emptyDesktop,
   };
 }
 

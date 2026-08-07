@@ -165,12 +165,13 @@ test('continues delayed placement when requesting a script config refresh throws
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
-  assert.equal(h.QTimer.pending, 1);
+  assert.equal(h.QTimer.pending, 2);
   assert.match(h.printed.at(-1), /failed to refresh script config: Error: D-Bus unavailable/);
 
   h.QTimer.fireAll();
 
-  assert.equal(fresh.desktops[0], d2);
+  assert.equal(h.workspace.desktops.length, 3);
+  assert.equal(fresh.desktops[0], h.workspace.desktops[2]);
 });
 
 test('removes every empty desktop and activates the nearest occupied desktop', () => {
@@ -277,11 +278,12 @@ test('moves a freshly added window after the QTimer delay', () => {
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
-  assert.equal(h.QTimer.pending, 1);
+  assert.equal(h.QTimer.pending, 2);
   h.QTimer.fireAll();
 
-  assert.equal(fresh.desktops[0], d2);
-  assert.equal(h.workspace.currentDesktop, d2);
+  assert.equal(h.workspace.desktops.length, 3);
+  assert.equal(fresh.desktops[0], h.workspace.desktops[2]);
+  assert.equal(h.workspace.currentDesktop, h.workspace.desktops[2]);
   assert.equal(h.workspace.activeWindow, fresh);
 });
 
@@ -297,8 +299,7 @@ test('does not cascade desktop creation for windows added within the move delay'
   h.loadWindow(b);
   h.workspace.windowAdded.fire(b);
 
-  h.QTimer.fireNext();
-  h.QTimer.fireNext();
+  h.QTimer.fireAll();
 
   assert.equal(h.workspace.desktops.length, 2);
   assert.equal(a.desktops[0], d0);
@@ -443,7 +444,7 @@ test('groups a second window of the same app onto the first window desktop', () 
   h.workspace.windowAdded.fire(second);
   h.QTimer.fireAll();
 
-  assert.equal(h.workspace.desktops.length, 3);
+  assert.deepEqual([...h.workspace.desktops], [d1]);
   assert.equal(first.desktops[0], d1);
   assert.equal(second.desktops[0], d1);
 });
@@ -484,7 +485,8 @@ test('keeps focus on the source window when configured', () => {
   h.workspace.windowAdded.fire(fresh);
   h.QTimer.fireAll();
 
-  assert.equal(fresh.desktops[0], d2);
+  assert.equal(h.workspace.desktops.length, 3);
+  assert.equal(fresh.desktops[0], h.workspace.desktops[2]);
   assert.equal(h.workspace.activeWindow, focused);
   assert.equal(h.workspace.currentDesktop, d0);
 });
@@ -526,15 +528,56 @@ test('handles close signals only once even when both closed and windowRemoved fi
   assert.equal(h.QTimer.pending, afterFirst);
 });
 
-test('switches to the nearest non-empty desktop and removes the emptied desktop', () => {
+test('cleans every empty desktop before placing a newly added window', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const existing = makeWindow({ title: 'Browser', desktops: [d2] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1, d2, d3] });
+  h.workspace.currentDesktop = d0;
+
+  const fresh = makeWindow({ title: 'Terminal', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.windowAdded.fire(fresh);
+
+  assert.equal(h.QTimer.pending, 2);
+  h.QTimer.fireNext();
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d2]);
+  assert.equal(fresh.desktops[0], d0);
+});
+
+test('coalesces desktop-change signals and cleans every empty desktop', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const moving = makeWindow({ title: 'Editor', desktops: [d0] });
+  const occupied = makeWindow({ title: 'Browser', desktops: [d1] });
+  const h = loadScript({ windows: [moving, occupied], desktops: [d0, d1, d2, d3] });
+  h.workspace.currentDesktop = d1;
+
+  moving.desktops = [d2];
+  moving.desktopsChanged.fire();
+  moving.desktopChanged.fire();
+
+  assert.equal(h.QTimer.pending, 1);
+  h.QTimer.fireAll();
+
+  assert.deepEqual([...h.workspace.desktops], [d1, d2]);
+});
+
+test('closing a window removes all empty desktops and restores previous focus', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
   const d3 = makeDesktop(3);
   const browser = makeWindow({ title: 'Browser', desktops: [d0] });
-  const chat = makeWindow({ title: 'Chat', desktops: [d3] });
   const closing = makeWindow({ title: 'Editor', desktops: [d2] });
-  const h = loadScript({ windows: [browser, chat, closing], desktops: [d0, d1, d2, d3] });
+  const h = loadScript({ windows: [browser, closing], desktops: [d0, d1, d2, d3] });
+  h.workspace.windowActivated.fire(browser);
+  h.workspace.windowActivated.fire(closing);
   h.workspace.currentDesktop = d2;
   h.workspace.activeWindow = closing;
 
@@ -543,6 +586,23 @@ test('switches to the nearest non-empty desktop and removes the emptied desktop'
   h.QTimer.fireAll();
 
   assert.equal(h.workspace.currentDesktop, d0);
-  assert.ok(![...h.workspace.desktops].includes(d2));
-  assert.deepEqual([...h.workspace.desktops], [d0, d1, d3]);
+  assert.equal(h.workspace.activeWindow, browser);
+  assert.deepEqual([...h.workspace.desktops], [d0]);
+});
+
+test('closing the final window retains its current desktop only', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const closing = makeWindow({ title: 'Editor', desktops: [d1] });
+  const h = loadScript({ windows: [closing], desktops: [d0, d1, d2] });
+  h.workspace.currentDesktop = d1;
+  h.workspace.activeWindow = closing;
+
+  h.unloadWindow(closing);
+  h.workspace.windowRemoved.fire(closing);
+  h.QTimer.fireAll();
+
+  assert.deepEqual([...h.workspace.desktops], [d1]);
+  assert.equal(h.workspace.currentDesktop, d1);
 });
