@@ -265,6 +265,55 @@ test('does not clean empty desktops when automatic removal is disabled', () => {
   assert.deepEqual([...h.workspace.desktops], [d0, d1]);
 });
 
+test('disabled cleanup keeps desktops after an added-window event', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const internalWindow = makeWindow({ normalWindow: false, title: 'Internal', desktops: [d0] });
+  const h = loadScript({
+    desktops: [d0, d1],
+    config: { RemoveEmptyVirtualDesktops: false },
+  });
+
+  h.loadWindow(internalWindow);
+  h.workspace.windowAdded.fire(internalWindow);
+  h.QTimer.fireAll();
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+});
+
+test('disabled cleanup keeps desktops after a moved-window event', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const moving = makeWindow({ title: 'Editor', desktops: [d0] });
+  const h = loadScript({
+    windows: [moving],
+    desktops: [d0, d1],
+    config: { RemoveEmptyVirtualDesktops: false },
+  });
+
+  moving.desktops = [d1];
+  h.QTimer.fireAll();
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+});
+
+test('disabled cleanup keeps desktops after a removed-window event', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const closing = makeWindow({ title: 'Editor', desktops: [d0] });
+  const h = loadScript({
+    windows: [closing],
+    desktops: [d0, d1],
+    config: { RemoveEmptyVirtualDesktops: false },
+  });
+
+  h.unloadWindow(closing);
+  h.workspace.windowRemoved.fire(closing);
+  h.QTimer.fireAll();
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+});
+
 test('does not change focus or desktops when removal is unavailable', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
