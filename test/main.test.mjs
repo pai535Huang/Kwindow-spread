@@ -202,6 +202,18 @@ test('keeps every desktop assigned to a multi-desktop window', () => {
   assert.deepEqual([...h.workspace.desktops], [d0, d2]);
 });
 
+test('keeps a legacy desktop when the desktops list is empty', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const window = makeWindow({ title: 'Browser', desktops: [], desktop: d1 });
+  const h = loadScript({ windows: [window], desktops: [d0, d1] });
+  h.workspace.currentDesktop = d0;
+
+  h.context.cleanupAllEmptyDesktops(false);
+
+  assert.deepEqual([...h.workspace.desktops], [d1]);
+});
+
 test('restores the previous focus before removing empty desktops', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);

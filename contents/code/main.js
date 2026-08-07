@@ -132,14 +132,20 @@ function getWindowDesktop(window) {
 }
 
 function getWindowDesktops(window) {
-  if (!window || !window.desktops || typeof window.desktops.length !== 'number')
+  if (!window)
     return null;
 
   var desktops = [];
-  for (var index = 0; index < window.desktops.length; index++)
-    desktops.push(window.desktops[index]);
+  if (window.desktops && typeof window.desktops.length === 'number') {
+    for (var index = 0; index < window.desktops.length; index++)
+      desktops.push(window.desktops[index]);
+  }
 
-  return desktops;
+  if (desktops.length > 0)
+    return desktops;
+
+  var desktop = getWindowDesktop(window);
+  return desktop ? [desktop] : null;
 }
 
 function setWindowDesktop(window, desktop) {
