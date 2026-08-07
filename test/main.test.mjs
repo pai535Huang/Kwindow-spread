@@ -189,6 +189,41 @@ test('removes every empty desktop and activates the nearest occupied desktop', (
   assert.deepEqual([...h.workspace.desktops], [d1, d3]);
 });
 
+test('keeps every desktop assigned to a multi-desktop window', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const window = makeWindow({ title: 'Browser', desktops: [d0, d2] });
+  const h = loadScript({ windows: [window], desktops: [d0, d1, d2] });
+  h.workspace.currentDesktop = d0;
+
+  h.context.cleanupAllEmptyDesktops(false);
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d2]);
+});
+
+test('restores the previous focus before removing empty desktops', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const previous = makeWindow({ title: 'Browser', desktops: [d0] });
+  const closing = makeWindow({ title: 'Editor', desktops: [d1] });
+  const h = loadScript({ windows: [previous, closing], desktops: [d0, d1, d2] });
+  h.workspace.activeWindow = previous;
+  h.workspace.windowActivated.fire(previous);
+
+  h.workspace.currentDesktop = d1;
+  h.workspace.activeWindow = closing;
+  h.unloadWindow(closing);
+
+  assert.equal(h.context.focusMru.includes(closing), false);
+  h.context.cleanupAllEmptyDesktops(true);
+
+  assert.equal(h.workspace.activeWindow, previous);
+  assert.equal(h.workspace.currentDesktop, d0);
+  assert.deepEqual([...h.workspace.desktops], [d0]);
+});
+
 test('keeps the current desktop when no normal windows remain', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);

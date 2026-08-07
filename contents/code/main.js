@@ -131,6 +131,17 @@ function getWindowDesktop(window) {
   return window.desktop || lastDesktopByWindow.get(window) || null;
 }
 
+function getWindowDesktops(window) {
+  if (!window || !window.desktops || typeof window.desktops.length !== 'number')
+    return null;
+
+  var desktops = [];
+  for (var index = 0; index < window.desktops.length; index++)
+    desktops.push(window.desktops[index]);
+
+  return desktops;
+}
+
 function setWindowDesktop(window, desktop) {
   if (!window || !desktop)
     return;
@@ -468,6 +479,7 @@ function toRuleWindow(window) {
     resourceName: stringProperty(window, ['resourceName', 'wmClassInstance']),
     appId: stringProperty(window, ['desktopFileName', 'appId']),
     desktop: desktop,
+    desktops: getWindowDesktops(window),
   };
 }
 
@@ -686,7 +698,10 @@ function desktopHasNormalWindow(desktop, windows, ignoredWindow) {
     if (window === ignoredWindow)
       return false;
 
-    return window.desktop === desktop && shouldTreatAsNormalWindow(window);
+    var belongsToDesktop = window.desktops && typeof window.desktops.indexOf === 'function'
+      ? window.desktops.indexOf(desktop) >= 0
+      : window.desktop === desktop;
+    return belongsToDesktop && shouldTreatAsNormalWindow(window);
   });
 }
 
