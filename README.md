@@ -16,10 +16,10 @@ desktop.
 - Keeps configured applications on the source desktop.
 - Optionally keeps focus on the current window when new windows open.
 - After a window is created, moved to another virtual desktop, or closed,
-  removes all empty virtual desktops when configured to do so.
-- Before removing an active empty desktop, switches to the previous focused
-  window or the nearest non-empty desktop. When no normal windows remain, keeps
-  the current desktop and removes the other empty desktops.
+  removes all empty virtual desktops when configured and supported by KWin.
+- Before removing a supported active empty desktop, switches to the previous
+  focused window or the nearest non-empty desktop. When no normal windows
+  remain, keeps the current desktop and removes the other empty desktops.
 
 ## Install
 
