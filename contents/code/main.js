@@ -327,6 +327,42 @@ function moveWindow(window, context) {
   activateWindow(window);
 }
 
+function cleanupAllEmptyDesktops(restorePreviousFocus) {
+  refreshConfig();
+  if (!config.removeEmptyVirtualDesktops)
+    return;
+
+  var desktops = Array.prototype.slice.call(getDesktops());
+  if (desktops.length === 0)
+    return;
+
+  var windows = getAllWindows().map(toRuleWindow);
+  var occupiedDesktops = desktops.filter(function (desktop) {
+    return desktopHasNormalWindow(desktop, windows, null);
+  });
+  var retainedDesktop = null;
+
+  if (occupiedDesktops.length === 0) {
+    var currentDesktop = getCurrentDesktop();
+    retainedDesktop = desktops.indexOf(currentDesktop) >= 0 ? currentDesktop : desktops[0];
+  } else {
+    var previousWindow = restorePreviousFocus ? getPreviousFocusWindow() : null;
+    if (previousWindow)
+      activateWindow(previousWindow);
+
+    var activeDesktop = getCurrentDesktop();
+    if (!desktopHasNormalWindow(activeDesktop, windows, null)) {
+      var activeIndex = desktops.indexOf(activeDesktop);
+      activateDesktop(getNearestNonEmptyDesktop(desktops, windows, activeIndex));
+    }
+  }
+
+  desktops.forEach(function (desktop) {
+    if (desktop !== retainedDesktop)
+      removeDesktopIfStillEmpty(desktop);
+  });
+}
+
 function scheduleEmptyDesktopCleanup(emptyDesktop, restorePreviousFocus) {
   scheduleTimer(function () {
     cleanupEmptyDesktop(emptyDesktop, restorePreviousFocus);
@@ -360,6 +396,9 @@ function cleanupEmptyDesktop(emptyDesktop, restorePreviousFocus) {
 }
 
 function removeDesktopIfStillEmpty(desktop) {
+  if (getDesktops().indexOf(desktop) < 0)
+    return;
+
   var windows = getAllWindows().map(toRuleWindow);
   if (!desktopHasNormalWindow(desktop, windows, null))
     removeDesktop(desktop);

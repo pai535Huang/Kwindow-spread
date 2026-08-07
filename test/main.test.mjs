@@ -173,22 +173,48 @@ test('continues delayed placement when requesting a script config refresh throws
   assert.equal(fresh.desktops[0], d2);
 });
 
-test('chooses the nearest non-empty desktop when an active desktop becomes empty', () => {
-  const { context } = loadScript({ desktops: [] });
-  const desktops = [makeDesktop(0), makeDesktop(1), makeDesktop(2), makeDesktop(3)];
-  const decision = context.getEmptyDesktopCleanupDecision({
-    emptyDesktop: desktops[2],
-    activeDesktop: desktops[2],
-    desktops,
-    windows: [
-      ruleWindow({ desktop: desktops[0], title: 'Browser' }),
-      ruleWindow({ desktop: desktops[3], title: 'Chat' }),
-    ],
+test('removes every empty desktop and activates the nearest occupied desktop', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const browser = makeWindow({ title: 'Browser', desktops: [d1] });
+  const chat = makeWindow({ title: 'Chat', desktops: [d3] });
+  const h = loadScript({ windows: [browser, chat], desktops: [d0, d1, d2, d3] });
+  h.workspace.currentDesktop = d2;
+
+  h.context.cleanupAllEmptyDesktops(false);
+
+  assert.equal(h.workspace.currentDesktop, d1);
+  assert.deepEqual([...h.workspace.desktops], [d1, d3]);
+});
+
+test('keeps the current desktop when no normal windows remain', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const h = loadScript({ desktops: [d0, d1, d2] });
+  h.workspace.currentDesktop = d1;
+
+  h.context.cleanupAllEmptyDesktops(false);
+
+  assert.deepEqual([...h.workspace.desktops], [d1]);
+  assert.equal(h.workspace.currentDesktop, d1);
+});
+
+test('does not clean empty desktops when automatic removal is disabled', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const occupied = makeWindow({ title: 'Browser', desktops: [d0] });
+  const h = loadScript({
+    windows: [occupied],
+    desktops: [d0, d1],
+    config: { RemoveEmptyVirtualDesktops: false },
   });
 
-  assert.equal(decision.kind, 'activate-and-remove');
-  assert.equal(decision.targetDesktop, desktops[0]);
-  assert.equal(decision.removeDesktop, desktops[2]);
+  h.context.cleanupAllEmptyDesktops(false);
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
 });
 
 test('moves a freshly added window after the QTimer delay', () => {
