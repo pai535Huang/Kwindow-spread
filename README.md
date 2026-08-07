@@ -15,9 +15,11 @@ desktop.
   virtual desktop.
 - Keeps configured applications on the source desktop.
 - Optionally keeps focus on the current window when new windows open.
-- When closing the focused window empties a virtual desktop, switches back to
-  the previous focused window or the nearest non-empty desktop, then removes the
-  empty desktop when supported.
+- After a window is created, moved to another virtual desktop, or closed,
+  removes all empty virtual desktops when configured to do so.
+- Before removing an active empty desktop, switches to the previous focused
+  window or the nearest non-empty desktop. When no normal windows remain, keeps
+  the current desktop and removes the other empty desktops.
 
 ## Install
 
