@@ -62,9 +62,16 @@ export function makeDesktop(index, name = `Desktop ${index + 1}`) {
   return { index, name };
 }
 
+function normalizeDesktopList(value) {
+  if (!value || typeof value.length !== 'number') return listLike();
+
+  const desktops = [];
+  for (let index = 0; index < value.length; index++) desktops.push(value[index]);
+  return listLike(desktops);
+}
+
 export function makeWindow(overrides = {}) {
-  return {
-    desktops: listLike(),
+  const window = {
     onAllDesktops: false,
     skipTaskbar: false,
     skipPager: false,
@@ -79,12 +86,26 @@ export function makeWindow(overrides = {}) {
     resourceName: '',
     appId: '',
     desktopFileName: '',
-    desktopsChanged: makeSignal(),
-    desktopChanged: makeSignal(),
-    closed: makeSignal(),
     ...overrides,
-    desktops: Array.isArray(overrides.desktops) ? listLike(overrides.desktops) : (overrides.desktops ?? listLike()),
+    desktopsChanged: overrides.desktopsChanged ?? makeSignal(),
+    desktopChanged: overrides.desktopChanged ?? makeSignal(),
+    closed: overrides.closed ?? makeSignal(),
   };
+
+  let desktops = normalizeDesktopList(overrides.desktops);
+  Object.defineProperty(window, 'desktops', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      return desktops;
+    },
+    set(value) {
+      desktops = normalizeDesktopList(value);
+      window.desktopsChanged.fire();
+    },
+  });
+
+  return window;
 }
 
 export function ruleWindow(overrides = {}) {

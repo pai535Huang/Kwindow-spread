@@ -170,8 +170,8 @@ test('continues delayed placement when requesting a script config refresh throws
 
   h.QTimer.fireAll();
 
-  assert.equal(h.workspace.desktops.length, 3);
-  assert.equal(fresh.desktops[0], h.workspace.desktops[2]);
+  assert.equal(h.workspace.desktops.length, 2);
+  assert.equal(fresh.desktops[0], h.workspace.desktops[1]);
 });
 
 test('removes every empty desktop and activates the nearest occupied desktop', () => {
@@ -265,6 +265,22 @@ test('does not clean empty desktops when automatic removal is disabled', () => {
   assert.deepEqual([...h.workspace.desktops], [d0, d1]);
 });
 
+test('does not change focus or desktops when removal is unavailable', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const occupied = makeWindow({ title: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [occupied], desktops: [d0, d1] });
+  h.workspace.currentDesktop = d1;
+  h.workspace.activeWindow = occupied;
+  delete h.workspace.removeDesktop;
+
+  h.context.cleanupAllEmptyDesktops(false);
+
+  assert.equal(h.workspace.currentDesktop, d1);
+  assert.equal(h.workspace.activeWindow, occupied);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+});
+
 test('moves a freshly added window after the QTimer delay', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
@@ -281,9 +297,9 @@ test('moves a freshly added window after the QTimer delay', () => {
   assert.equal(h.QTimer.pending, 2);
   h.QTimer.fireAll();
 
-  assert.equal(h.workspace.desktops.length, 3);
-  assert.equal(fresh.desktops[0], h.workspace.desktops[2]);
-  assert.equal(h.workspace.currentDesktop, h.workspace.desktops[2]);
+  assert.equal(h.workspace.desktops.length, 2);
+  assert.equal(fresh.desktops[0], h.workspace.desktops[1]);
+  assert.equal(h.workspace.currentDesktop, h.workspace.desktops[1]);
   assert.equal(h.workspace.activeWindow, fresh);
 });
 
@@ -462,8 +478,8 @@ test('creates a virtual desktop when the target desktop does not exist', () => {
   h.workspace.windowAdded.fire(fresh);
   h.QTimer.fireAll();
 
-  assert.equal(h.workspace.desktops.length, 3);
-  assert.equal(fresh.desktops[0], h.workspace.desktops[2]);
+  assert.equal(h.workspace.desktops.length, 2);
+  assert.equal(fresh.desktops[0], h.workspace.desktops[1]);
 });
 
 test('keeps focus on the source window when configured', () => {
@@ -528,6 +544,23 @@ test('handles close signals only once even when both closed and windowRemoved fi
   assert.equal(h.QTimer.pending, afterFirst);
 });
 
+test('ignores late desktop-change signals from a removed window', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const closing = makeWindow({ title: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [closing], desktops: [d0, d1] });
+
+  h.unloadWindow(closing);
+  h.workspace.windowRemoved.fire(closing);
+  h.QTimer.fireAll();
+
+  closing.desktopsChanged.fire();
+  closing.desktopChanged.fire();
+
+  assert.equal(h.QTimer.pending, 0);
+  assert.equal(h.context.lastDesktopByWindow.has(closing), false);
+});
+
 test('cleans every empty desktop before placing a newly added window', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
@@ -566,6 +599,25 @@ test('coalesces desktop-change signals and cleans every empty desktop', () => {
   h.QTimer.fireAll();
 
   assert.deepEqual([...h.workspace.desktops], [d1, d2]);
+});
+
+test('cleans the source desktop after script placement changes desktops', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const existing = makeWindow({ title: 'Browser', desktops: [d1] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
+  h.workspace.currentDesktop = d0;
+
+  const fresh = makeWindow({ title: 'Terminal', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.windowAdded.fire(fresh);
+
+  assert.equal(h.QTimer.pending, 2);
+  h.QTimer.fireAll();
+
+  assert.deepEqual([...h.workspace.desktops], [d1, fresh.desktops[0]]);
+  assert.equal(fresh.desktops[0], h.workspace.desktops[1]);
 });
 
 test('closing a window removes all empty desktops and restores previous focus', () => {

@@ -351,6 +351,9 @@ function cleanupAllEmptyDesktops(restorePreviousFocus) {
   if (!config.removeEmptyVirtualDesktops)
     return;
 
+  if (typeof workspace.removeDesktop !== 'function')
+    return;
+
   var desktops = Array.prototype.slice.call(getDesktops());
   if (desktops.length === 0)
     return;
@@ -431,6 +434,9 @@ function onWindowRemoved(window) {
 }
 
 function onWindowDesktopChanged(window) {
+  if (!connectedWindows.has(window))
+    return;
+
   lastDesktopByWindow.set(window, getWindowDesktop(window));
   scheduleAllEmptyDesktopCleanup(false);
 }
