@@ -1275,6 +1275,35 @@ test('a temporary reservation target becomes permanent when late spread adopts i
   assert.equal(h.context.reservationCreatedDesktops.has(d2), false);
 });
 
+test('ordinary reconciliation clears ownership of a removed temporary reservation desktop', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1] });
+  h.workspace.currentDesktop = d0;
+
+  const lateWindow = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(lateWindow);
+  h.workspace.windowAdded.fire(lateWindow);
+  const temporarySpare = h.workspace.desktops[2];
+  assert.equal(h.context.reservationCreatedDesktops.has(temporarySpare), true);
+
+  lateWindow.caption = 'Document';
+  lateWindow.captionChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+  assert.equal(lateWindow.desktops[0], d1);
+  assert.equal(h.context.reservationCreatedDesktops.has(temporarySpare), true);
+
+  const userSpare = h.workspace.createDesktop(h.workspace.desktops.length, 'User spare');
+  h.context.reconcileTrailingSpareDesktops(false);
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, userSpare]);
+  assert.equal(h.context.reservationCreatedDesktops.has(temporarySpare), false);
+  h.context.reservationCreatedDesktops.forEach((desktop) => {
+    assert.equal(h.workspace.desktops.includes(desktop), true);
+  });
+});
+
 test('a user-occupied temporary reservation desktop is never reclaimed', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);

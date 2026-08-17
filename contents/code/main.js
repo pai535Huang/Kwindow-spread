@@ -182,13 +182,23 @@ function createDesktopAt(index) {
 
 function removeDesktop(desktop) {
   if (!config.removeEmptyVirtualDesktops || !desktop || typeof workspace.removeDesktop !== 'function')
-    return;
+    return false;
 
   try {
     workspace.removeDesktop(desktop);
   } catch (error) {
     print('Kwindow-spread: failed to remove virtual desktop: ' + error);
+    return false;
   }
+  return clearTemporaryOwnershipAfterRemoval(desktop);
+}
+
+function clearTemporaryOwnershipAfterRemoval(desktop) {
+  if (getDesktops().indexOf(desktop) >= 0)
+    return false;
+
+  reservationCreatedDesktops.delete(desktop);
+  return true;
 }
 
 function recordActivation(window) {
@@ -343,7 +353,6 @@ function reclaimTemporaryReservationDesktops() {
         continue;
 
       if (removeTemporaryReservationDesktop(desktop)) {
-        reservationCreatedDesktops.delete(desktop);
         removedDesktop = true;
         break;
       }
@@ -361,7 +370,7 @@ function removeTemporaryReservationDesktop(desktop) {
     print('Kwindow-spread: failed to remove temporary reservation desktop: ' + error);
     return false;
   }
-  return getDesktops().indexOf(desktop) < 0;
+  return clearTemporaryOwnershipAfterRemoval(desktop);
 }
 
 function placeWindowImmediately(window, context) {
