@@ -567,7 +567,7 @@ test('window add and remove events do not trigger asynchronous D-Bus config refr
   assert.deepEqual(h.callDBusCalls, []);
 });
 
-test('immediate placement uses config loaded at script startup', () => {
+test('window addition uses configuration applied after script startup', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const existing = makeWindow({ caption: 'Browser', desktops: [d0] });
@@ -585,9 +585,30 @@ test('immediate placement uses config loaded at script startup', () => {
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
-  assert.equal(fresh.desktops[0], d0);
-  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
-  assert.deepEqual([...h.context.config.rules.sourceDesktopApplications], ['spectacle']);
+  assert.equal(fresh.desktops[0], d1);
+  assert.deepEqual([...h.context.config.rules.sourceDesktopApplications], []);
+});
+
+test('window addition uses focus configuration applied after script startup', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const focused = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const other = makeWindow({ caption: 'Browser', desktops: [d1] });
+  const h = loadScript({ windows: [focused, other], desktops: [d0, d1, d2] });
+  h.workspace.currentDesktop = d0;
+  h.workspace.activeWindow = focused;
+  h.workspace.windowActivated.fire(focused);
+  h.config.KeepCurrentFocus = true;
+
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.activeWindow = fresh;
+  h.workspace.windowActivated.fire(fresh);
+  h.workspace.windowAdded.fire(fresh);
+
+  assert.equal(h.workspace.activeWindow, focused);
+  assert.equal(h.workspace.currentDesktop, d0);
 });
 
 test('cleanup removes intermediate empties and retains the trailing spare', () => {

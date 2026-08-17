@@ -46,6 +46,10 @@ function loadConfig() {
   };
 }
 
+function refreshConfig() {
+  config = loadConfig();
+}
+
 function readBoolConfig(name, fallback) {
   try {
     return !!readConfig(name, fallback);
@@ -722,6 +726,7 @@ function onWindowAdded(window) {
   if (!window)
     return;
 
+  refreshConfig();
   var activeWindow = workspace.activeWindow || null;
   var context = {
     desktop: getCurrentDesktop(),
