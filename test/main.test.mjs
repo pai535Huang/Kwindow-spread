@@ -7,6 +7,9 @@ const configSchemaSource = readFileSync(new URL('../contents/config/main.xml', i
 const configUiSource = readFileSync(new URL('../contents/ui/config.ui', import.meta.url), 'utf8');
 const readmeSource = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
 const metadataSource = readFileSync(new URL('../metadata.json', import.meta.url), 'utf8');
+const packageSource = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
+const metadata = JSON.parse(metadataSource);
+const packageManifest = JSON.parse(packageSource);
 
 test('avoids JS features missing from the KWin QJSEngine', () => {
   assert.equal(mainSource.includes('.flatMap('), false, 'flatMap is missing from KWin QJSEngine');
@@ -37,12 +40,29 @@ test('documents Plasma 6 Wayland and the trailing spare desktop', () => {
   assert.match(readmeSource, /XWayland/i);
   assert.match(readmeSource, /trailing empty virtual desktop/i);
   assert.match(readmeSource, /without\s+(?:a\s+)?fixed 500 ms delay/i);
-  assert.match(readmeSource, /disable and re-enable/i);
+  assert.match(readmeSource, /select \*\*Apply\*\*/i);
   assert.match(configUiSource, /Remove extra empty virtual desktops while keeping one trailing spare/);
   assert.equal(
-    JSON.parse(metadataSource).KPlugin.Description,
-    'Keep a trailing empty virtual desktop ready and place new application windows there.',
+    metadata.KPlugin.Description,
+    'Keep a trailing empty virtual desktop ready for ordinary new normal windows.',
   );
+});
+
+test('keeps Plasma 6 package metadata and release commands consistent', () => {
+  assert.equal(metadata.KPlugin.Id, 'kwindow-spread');
+  assert.equal(metadata.KPackageStructure, 'KWin/Script');
+  assert.equal(packageManifest.name, metadata.KPlugin.Id);
+  assert.equal(packageManifest.version, metadata.KPlugin.Version);
+  assert.equal(metadata.KPlugin.Version, '1.1.0');
+
+  assert.match(readmeSource, /kpackagetool6 --type KWin\/Script --install \./);
+  assert.match(readmeSource, /kpackagetool6 --type KWin\/Script --upgrade \./);
+  assert.match(readmeSource, /kpackagetool6 --type KWin\/Script --remove kwindow-spread/);
+});
+
+test('documents a two-apply script reload after updates and configuration changes', () => {
+  assert.ok((readmeSource.match(/disable[\s\S]{0,100}\*\*Apply\*\*/gi) || []).length >= 2);
+  assert.ok((readmeSource.match(/enable[\s\S]{0,100}\*\*Apply\*\*/gi) || []).length >= 2);
 });
 
 test('release files do not advertise obsolete desktop creation or legacy support', () => {

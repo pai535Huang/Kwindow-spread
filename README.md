@@ -4,11 +4,13 @@ Kwindow-spread is a KDE Plasma 6 KWin script for Wayland sessions. It supports
 both native Wayland and XWayland application windows. Plasma 5 and standalone
 X11 sessions are outside its support scope.
 
-The script keeps a trailing empty virtual desktop ready and places each new
-normal application window there synchronously. Because the target already
-exists when KWin reports the window, the window can be assigned without a
-fixed 500 ms delay or a create-then-move flash on the current desktop. The
-script then appends the next trailing spare for the following window.
+By default, the script keeps a trailing empty virtual desktop ready for
+ordinary new normal application windows. Dialogs, transient windows, portals,
+configured source-desktop applications, and same-desktop groups follow the
+exceptions described below. For a window on the default spreading path, the
+target already exists when KWin reports it, so the window can be assigned
+without a fixed 500 ms delay or a create-then-move flash on the current
+desktop. The script then appends the next trailing spare.
 
 ## Behavior
 
@@ -56,8 +58,9 @@ Scripts**.
 kpackagetool6 --type KWin/Script --upgrade .
 ```
 
-After an update, disable and re-enable **Kwindow-spread** in the KWin Scripts
-settings page to load the new code.
+To reload the script after an update, disable **Kwindow-spread** in the KWin
+Scripts settings page and select **Apply**. Then enable it and select **Apply**
+again.
 
 ## Remove
 
@@ -70,8 +73,9 @@ kpackagetool6 --type KWin/Script --remove kwindow-spread
 ## Configure
 
 Open the configuration dialog from the KWin Scripts settings page. Settings
-are read when the script starts or reloads. After saving changes, disable and
-re-enable **Kwindow-spread** on that page to apply them.
+are read when the script starts or reloads. After saving changes, disable
+**Kwindow-spread** and select **Apply**. Then enable it and select **Apply**
+again.
 
 ### Same-desktop groups
 

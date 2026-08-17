@@ -7,13 +7,13 @@
             }
         ],
         "Category": "Window Management",
-        "Description": "Keep a trailing empty virtual desktop ready and place new application windows there.",
+        "Description": "Keep a trailing empty virtual desktop ready for ordinary new normal windows.",
         "EnabledByDefault": false,
         "Icon": "preferences-system-windows-script-test",
         "Id": "kwindow-spread",
         "License": "MIT",
         "Name": "Kwindow-spread",
-        "Version": "1.0.0"
+        "Version": "1.1.0"
     },
     "X-KDE-ConfigModule": "kwin/effects/configs/kcm_kwin4_genericscripted",
     "X-Plasma-API": "javascript",
