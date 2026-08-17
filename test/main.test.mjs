@@ -281,6 +281,72 @@ test('creation failure timers drain without retrying forever', () => {
   assert.equal(attempts <= 3, true, 'startup, placement, and one reconciliation attempt');
 });
 
+test('a windowAdded operation gets a fresh budget after startup creation failed', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  let failCreation = true;
+  let calls = 0;
+  const h = loadScript({
+    windows: [browser],
+    desktops: [d0],
+    workspaceOverrides: {
+      createDesktop(position, name) {
+        calls += 1;
+        if (failCreation) throw new Error('temporarily unavailable');
+        const desktop = makeDesktop(position, name);
+        this.desktops.splice(position, 0, desktop);
+        return desktop;
+      },
+    },
+  });
+  failCreation = false;
+  const window = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+
+  assert.equal(calls, 3, 'one startup failure and two successful placement creations');
+  assert.equal(window.desktops[0], h.workspace.desktops[1]);
+  assert.equal(h.workspace.desktops.length, 3);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), h.workspace.desktops[2]);
+});
+
+test('createDesktopAt recognizes a newly added object instead of trusting its index', () => {
+  const d0 = makeDesktop(0);
+  const h = loadScript({ desktops: [d0] });
+  let created = null;
+  h.workspace.createDesktop = (position, name) => {
+    created = makeDesktop(position, name);
+    h.workspace.desktops.splice(0, 0, created);
+    return makeDesktop(999, 'Bogus return value');
+  };
+
+  const result = h.context.createDesktopAt(1);
+
+  assert.equal(result, created);
+  assert.equal(h.workspace.desktops.includes(result), true);
+});
+
+test('createDesktopAt recognizes creation completed before an exception', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  let created = null;
+  const h = loadScript({
+    windows: [browser],
+    desktops: [d0],
+    workspaceOverrides: {
+      createDesktop(position, name) {
+        created = makeDesktop(position, name);
+        this.desktops.splice(position, 0, created);
+        throw new Error('late D-Bus error');
+      },
+    },
+  });
+
+  assert.equal(h.workspace.desktops.includes(created), true);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), created);
+  assert.doesNotMatch(h.printed.join('\n'), /failed to create virtual desktop/);
+});
+
 test('keeps portal and file chooser windows on their source desktop', () => {
   const { context } = loadScript({ desktops: [] });
   const source = makeDesktop(0);
@@ -753,6 +819,45 @@ test('temporary reclaim recognizes removal completed before removeDesktop throws
   assert.equal(h.workspace.currentDesktop, d0);
   assert.equal(h.workspace.activeWindow, browser);
   assert.equal(h.workspace.desktops.includes(h.workspace.currentDesktop), true);
+});
+
+test('identity deadline drops ownership for a temporary desktop deleted externally', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, d1] });
+  const window = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  const temporaryDesktop = h.workspace.desktops[2];
+  assert.equal(h.context.reservationCreatedDesktops.has(temporaryDesktop), true);
+  h.workspace.removeDesktop(temporaryDesktop);
+
+  assert.equal(h.QTimer.fireInterval(1000), true);
+
+  assert.equal(h.context.reservationCreatedDesktops.size, 0);
+  assert.equal(h.context.placementStates.has(window), false);
+});
+
+test('reclaim transfers temporary ownership to a same-id replacement', () => {
+  const d0 = Object.assign(makeDesktop(0), { id: 'desktop-0' });
+  const stale = Object.assign(makeDesktop(1), { id: 'desktop-1' });
+  const replacement = Object.assign(makeDesktop(1, 'Replacement'), { id: 'desktop-1' });
+  const d2 = Object.assign(makeDesktop(2), { id: 'desktop-2' });
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, replacement, d2] });
+  const reservation = {};
+  h.context.reservationCreatedDesktops.add(stale);
+  h.context.reservedDesktopByWindow.set(reservation, stale);
+
+  h.context.reclaimTemporaryReservationDesktops();
+
+  assert.equal(h.context.reservationCreatedDesktops.has(stale), false);
+  assert.equal(h.context.reservationCreatedDesktops.has(replacement), true);
+  h.context.reservedDesktopByWindow.delete(reservation);
+  h.context.reclaimTemporaryReservationDesktops();
+  assert.equal(h.workspace.desktops.includes(replacement), false);
+  assert.equal(h.context.reservationCreatedDesktops.size, 0);
 });
 
 test('temporary ownership follows same-id replacement objects until occupied', () => {
@@ -1551,6 +1656,64 @@ test('late correction falls back safely when both its target and current placeme
   assert.equal(h.QTimer.fireInterval(50), true);
 
   assert.equal(window.desktops[0], remainingSpare);
+  assert.equal(h.workspace.desktops.includes(window.desktops[0]), true);
+});
+
+test('late correction can create a target and then a spare within one operation budget', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
+  const window = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  const occupied = h.workspace.desktops[3];
+  existing.desktops = [occupied];
+  h.workspace.removeDesktop(d0);
+  h.workspace.removeDesktop(d1);
+  h.workspace.removeDesktop(d2);
+  let calls = 0;
+  const originalCreate = h.workspace.createDesktop.bind(h.workspace);
+  h.workspace.createDesktop = (position, name) => {
+    calls += 1;
+    return originalCreate(position, name);
+  };
+
+  window.caption = 'Document';
+  window.captionChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+
+  assert.equal(calls, 2);
+  assert.equal(window.desktops[0], h.workspace.desktops[1]);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), h.workspace.desktops[2]);
+});
+
+test('late correction does not retry creation after the operation budget records failure', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
+  const window = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  const occupied = h.workspace.desktops[3];
+  existing.desktops = [occupied];
+  h.workspace.removeDesktop(d0);
+  h.workspace.removeDesktop(d1);
+  h.workspace.removeDesktop(d2);
+  let calls = 0;
+  h.workspace.createDesktop = () => {
+    calls += 1;
+    throw new Error('desktop limit');
+  };
+
+  window.caption = 'Document';
+  window.captionChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+
+  assert.equal(calls, 1);
   assert.equal(h.workspace.desktops.includes(window.desktops[0]), true);
 });
 

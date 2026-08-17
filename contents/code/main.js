@@ -156,8 +156,12 @@ function getDesktops() {
 function getDesktopStableId(desktop) {
   if (!desktop)
     return '';
-  if (desktop.id !== null && desktop.id !== undefined && String(desktop.id) !== '')
-    return String(desktop.id);
+  try {
+    if (desktop.id !== null && desktop.id !== undefined && String(desktop.id) !== '')
+      return String(desktop.id);
+  } catch (error) {
+    return '';
+  }
   return '';
 }
 
@@ -183,7 +187,7 @@ function resolveDesktopReference(target, desktops) {
   return null;
 }
 
-function resolveExistingTarget(target, fallback, creationAttempt) {
+function resolveExistingTarget(target, fallback, creationBudget) {
   var desktops = Array.prototype.slice.call(getDesktops());
   var resolved = resolveDesktopReference(target, desktops);
   if (resolved)
@@ -191,7 +195,7 @@ function resolveExistingTarget(target, fallback, creationAttempt) {
 
   var spare = getTrailingSpareDesktop(desktops, getAllWindows().map(toRuleWindow));
   if (!spare)
-    spare = ensureTrailingSpareDesktop(creationAttempt || { creationAttempted: false });
+    spare = ensureTrailingSpareDesktop(creationBudget || makeDesktopCreationBudget(1));
   resolved = resolveDesktopReference(spare, getDesktops());
   if (resolved)
     return resolved;
@@ -204,10 +208,10 @@ function resolveExistingTarget(target, fallback, creationAttempt) {
   return desktops.length > 0 ? desktops[desktops.length - 1] : null;
 }
 
-function resolveRuleTarget(target, currentPlacement, creationAttempt) {
+function resolveRuleTarget(target, currentPlacement, creationBudget) {
   return resolveDesktopReference(target, getDesktops()) ||
     resolveDesktopReference(currentPlacement, getDesktops()) ||
-    resolveExistingTarget(null, null, creationAttempt);
+    resolveExistingTarget(null, null, creationBudget);
 }
 
 function activateDesktop(desktop) {
@@ -229,32 +233,58 @@ function activateWindow(window) {
   workspace.activeWindow = window;
 }
 
-function createDesktopAt(index) {
+function makeDesktopCreationBudget(maxCalls) {
+  return {
+    failed: false,
+    calls: 0,
+    maxCalls: Math.max(1, maxCalls || 1),
+  };
+}
+
+function findCreatedDesktop(before, after) {
+  if (after.length <= before.length)
+    return null;
+  for (var index = 0; index < after.length; index++) {
+    if (!resolveDesktopReference(after[index], before))
+      return after[index];
+  }
+  return null;
+}
+
+function createDesktopAt(index, creationBudget) {
+  creationBudget = creationBudget || makeDesktopCreationBudget(1);
+  if (creationBudget.failed || creationBudget.calls >= creationBudget.maxCalls)
+    return null;
+  creationBudget.calls++;
+
+  var before = Array.prototype.slice.call(getDesktops());
   if (typeof workspace.createDesktop !== 'function') {
+    creationBudget.failed = true;
     print('Kwindow-spread: failed to create virtual desktop: operation unavailable');
     return null;
   }
 
-  var before = Array.prototype.slice.call(getDesktops());
-
+  var operationError = null;
   try {
     workspace.createDesktop(index, 'Desktop ' + (index + 1));
   } catch (error) {
-    print('Kwindow-spread: failed to create virtual desktop: ' + error);
-    return null;
+    operationError = error;
   }
 
   var after = Array.prototype.slice.call(getDesktops());
-  if (after.length <= before.length) {
-    print('Kwindow-spread: failed to create virtual desktop: workspace did not add a desktop');
-    return null;
+  var candidate = findCreatedDesktop(before, after);
+  if (candidate) {
+    if (operationError)
+      print('Kwindow-spread: created virtual desktop despite operation error: ' + operationError);
+    return candidate;
   }
 
-  var candidateIndex = Math.max(0, Math.min(index, after.length - 1));
-  var candidate = after[candidateIndex] || null;
-  if (!candidate)
-    print('Kwindow-spread: failed to create virtual desktop: workspace returned no usable desktop');
-  return candidate;
+  creationBudget.failed = true;
+  if (operationError)
+    print('Kwindow-spread: failed to create virtual desktop: ' + operationError);
+  else
+    print('Kwindow-spread: failed to create virtual desktop: workspace did not add a desktop');
+  return null;
 }
 
 function removeDesktop(desktop) {
@@ -315,6 +345,22 @@ function deleteTemporaryOwnership(desktop) {
   });
   matches.forEach(function (ownedDesktop) {
     reservationCreatedDesktops.delete(ownedDesktop);
+  });
+}
+
+function sweepTemporaryOwnership() {
+  var desktops = Array.prototype.slice.call(getDesktops());
+  var ownership = [];
+  reservationCreatedDesktops.forEach(function (desktop) {
+    ownership.push(desktop);
+  });
+  ownership.forEach(function (desktop) {
+    var resolved = resolveDesktopReference(desktop, desktops);
+    if (resolved === desktop)
+      return;
+    reservationCreatedDesktops.delete(desktop);
+    if (resolved)
+      reservationCreatedDesktops.add(resolved);
   });
 }
 
@@ -415,22 +461,19 @@ function cancelTimer(timer) {
     timer.deleteLater();
 }
 
-function ensureTrailingSpareDesktop(attempt) {
+function ensureTrailingSpareDesktop(creationBudget) {
   var desktops = getDesktops();
   var windows = getAllWindows().map(toRuleWindow);
   var spare = getTrailingSpareDesktop(desktops, windows);
   if (spare)
     return spare;
 
-  attempt = attempt || { creationAttempted: false };
-  if (attempt.creationAttempted)
-    return null;
-  attempt.creationAttempted = true;
+  creationBudget = creationBudget || makeDesktopCreationBudget(1);
 
   var previousTail = desktops.length > 0 ? desktops[desktops.length - 1] : null;
   var createdForReservation = previousTail && isDesktopReserved(previousTail) &&
     !desktopHasNormalWindow(previousTail, windows, null);
-  var created = createDesktopAt(desktops.length);
+  var created = createDesktopAt(desktops.length, creationBudget);
   if (created && createdForReservation)
     reservationCreatedDesktops.add(created);
   return created;
@@ -446,6 +489,7 @@ function promoteTemporaryDesktopsOccupiedBy(window) {
 }
 
 function reclaimTemporaryReservationDesktops() {
+  sweepTemporaryOwnership();
   getAllWindows().forEach(promoteTemporaryDesktopsOccupiedBy);
 
   var releasedActiveTemporaryDesktop = false;
@@ -488,6 +532,7 @@ function reclaimTemporaryReservationDesktops() {
       }
     }
   }
+  sweepTemporaryOwnership();
   return releasedActiveTemporaryDesktop;
 }
 
@@ -508,11 +553,11 @@ function placeWindowImmediately(window, context) {
   var otherWindows = getAllWindows().filter(function (otherWindow) {
     return otherWindow !== window;
   }).map(toRuleWindow);
-  var creationAttempt = { creationAttempted: false };
+  var creationBudget = makeDesktopCreationBudget(2);
   var desktops = getDesktops();
   var spare = getTrailingSpareDesktop(desktops, otherWindows);
   if (!spare)
-    spare = ensureTrailingSpareDesktop(creationAttempt);
+    spare = ensureTrailingSpareDesktop(creationBudget);
 
   var decision = getInitialPlacementDecision({
     window: normalizedWindow,
@@ -524,23 +569,23 @@ function placeWindowImmediately(window, context) {
   });
   var currentPlacement = resolveDesktopReference(getWindowDesktop(window), getDesktops());
   if (decision.kind === 'spread')
-    decision.targetDesktop = resolveExistingTarget(decision.targetDesktop, currentPlacement || context.desktop, creationAttempt);
+    decision.targetDesktop = resolveExistingTarget(decision.targetDesktop, currentPlacement || context.desktop, creationBudget);
   else if (decision.targetDesktop)
-    decision.targetDesktop = resolveRuleTarget(decision.targetDesktop, currentPlacement, creationAttempt);
-  decision.initialTarget = resolveExistingTarget(spare, currentPlacement || context.desktop, creationAttempt);
+    decision.targetDesktop = resolveRuleTarget(decision.targetDesktop, currentPlacement, creationBudget);
+  decision.initialTarget = resolveExistingTarget(spare, currentPlacement || context.desktop, creationBudget);
 
   if (decision.kind !== 'spread' && decision.initialTarget)
     reservedDesktopByWindow.set(window, decision.initialTarget);
 
   if (decision.kind === 'ignore') {
-    ensureTrailingSpareDesktop(creationAttempt);
+    ensureTrailingSpareDesktop(creationBudget);
     return decision;
   }
 
   if (decision.targetDesktop && getWindowDesktop(window) !== decision.targetDesktop)
     setWindowDesktop(window, decision.targetDesktop);
 
-  ensureTrailingSpareDesktop(creationAttempt);
+  ensureTrailingSpareDesktop(creationBudget);
   if (config.keepCurrentFocus)
     restoreFocus(context);
   else if (decision.kind !== 'source')
@@ -624,6 +669,7 @@ function recheckWindowIdentity(window, atDeadline) {
     return;
   }
 
+  var creationBudget = makeDesktopCreationBudget(2);
   var otherWindows = getAllWindows().filter(function (otherWindow) {
     return otherWindow !== window;
   }).map(toRuleWindow);
@@ -648,8 +694,8 @@ function recheckWindowIdentity(window, atDeadline) {
   var currentPlacement = resolveDesktopReference(getWindowDesktop(window), getDesktops());
   if (target) {
     target = useSpareFallback
-      ? resolveExistingTarget(target, currentPlacement)
-      : resolveRuleTarget(target, currentPlacement);
+      ? resolveExistingTarget(target, currentPlacement, creationBudget)
+      : resolveRuleTarget(target, currentPlacement, creationBudget);
   }
 
   if (target && target !== currentPlacement) {
@@ -659,7 +705,7 @@ function recheckWindowIdentity(window, atDeadline) {
       return;
     }
     state.corrected = true;
-    ensureTrailingSpareDesktop();
+    ensureTrailingSpareDesktop(creationBudget);
     scheduleDesktopReconciliation(finishIdentitySettling(window));
     return;
   }
@@ -670,6 +716,7 @@ function recheckWindowIdentity(window, atDeadline) {
 }
 
 function reconcileTrailingSpareDesktops(restorePreviousFocus) {
+  var creationBudget = makeDesktopCreationBudget(1);
   var desktops = Array.prototype.slice.call(getDesktops());
   if (desktops.length === 0)
     return null;
@@ -681,7 +728,7 @@ function reconcileTrailingSpareDesktops(restorePreviousFocus) {
 
   if (occupiedDesktops.length === 0) {
     if (placementStates.size > 0 || reservedDesktopByWindow.size > 0)
-      return ensureTrailingSpareDesktop();
+      return ensureTrailingSpareDesktop(creationBudget);
 
     var currentDesktop = getCurrentDesktop();
     var retainedDesktop = desktops.indexOf(currentDesktop) >= 0 ? currentDesktop : desktops[0];
@@ -694,7 +741,7 @@ function reconcileTrailingSpareDesktops(restorePreviousFocus) {
     return retainedDesktop;
   }
 
-  var spare = ensureTrailingSpareDesktop();
+  var spare = ensureTrailingSpareDesktop(creationBudget);
   if (!config.removeEmptyVirtualDesktops || typeof workspace.removeDesktop !== 'function')
     return spare;
 
@@ -1143,4 +1190,4 @@ workspace.windowActivated.connect(recordActivation);
 
 getAllWindows().forEach(trackWindow);
 recordActivation(workspace.activeWindow || null);
-ensureTrailingSpareDesktop();
+ensureTrailingSpareDesktop(makeDesktopCreationBudget(1));
