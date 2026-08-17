@@ -262,6 +262,37 @@ test('restores the previous focus before removing empty desktops', () => {
   assert.deepEqual([...h.workspace.desktops], [d0]);
 });
 
+test('reactivation removes a window from normal focus history after it becomes a dialog', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const window = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [window], desktops: [d0, d1] });
+
+  h.workspace.windowActivated.fire(window);
+  assert.equal(h.context.normalFocusMru.includes(window), true);
+
+  window.dialog = true;
+  h.workspace.windowActivated.fire(window);
+
+  assert.equal(h.context.normalFocusMru.includes(window), false);
+  assert.equal(h.context.getPreviousNormalFocusWindow(), null);
+});
+
+test('normal focus lookup lazily removes a window that became transient without reactivation', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const previous = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const stale = makeWindow({ caption: 'Editor', desktops: [d1] });
+  const h = loadScript({ windows: [previous, stale], desktops: [d0, d1] });
+
+  h.workspace.windowActivated.fire(previous);
+  h.workspace.windowActivated.fire(stale);
+  stale.transient = true;
+
+  assert.equal(h.context.getPreviousNormalFocusWindow(), previous);
+  assert.equal(h.context.normalFocusMru.includes(stale), false);
+});
+
 test('keeps the current desktop when no normal windows remain', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);

@@ -164,10 +164,10 @@ function recordActivation(window) {
   if (activationMru.length > 16)
     activationMru.length = 16;
 
+  removeFromNormalFocusMru(window);
   if (!shouldTreatAsNormalWindow(toRuleWindow(window)))
     return;
 
-  removeFromNormalFocusMru(window);
   normalFocusMru.unshift(window);
   if (normalFocusMru.length > 16)
     normalFocusMru.length = 16;
@@ -196,13 +196,21 @@ function getPreviousActivationWindow(ignoredWindow) {
 }
 
 function getPreviousNormalFocusWindow() {
-  for (var index = 0; index < normalFocusMru.length; index++) {
+  var previousWindow = null;
+  var windows = getAllWindows();
+  for (var index = 0; index < normalFocusMru.length;) {
     var window = normalFocusMru[index];
-    if (window && getAllWindows().indexOf(window) >= 0)
-      return window;
+    if (!window || windows.indexOf(window) < 0 || !shouldTreatAsNormalWindow(toRuleWindow(window))) {
+      normalFocusMru.splice(index, 1);
+      continue;
+    }
+
+    if (!previousWindow)
+      previousWindow = window;
+    index++;
   }
 
-  return null;
+  return previousWindow;
 }
 
 function restoreFocus(context) {
