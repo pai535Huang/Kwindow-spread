@@ -46,34 +46,37 @@ test('models disconnectable Plasma 6 identity signals', () => {
 test('leaves the first normal window on the source desktop', () => {
   const { context } = loadScript({ desktops: [] });
   const source = makeDesktop(0);
-  const decision = context.getPlacementDecision({
+  const decision = context.getInitialPlacementDecision({
     window: ruleWindow({ desktop: source, title: 'Terminal' }),
     desktops: [source],
     windows: [],
     sourceDesktop: source,
+    spareDesktop: source,
     rules: context.DEFAULT_RULES,
   });
 
-  assert.equal(decision.kind, 'stay');
-  assert.equal(decision.reason, 'no-non-empty-desktop');
+  assert.equal(decision.kind, 'spread');
+  assert.equal(decision.targetDesktop, source);
+  assert.equal(decision.reason, 'trailing-spare');
 });
 
-test('moves a new normal window to the desktop after the last non-empty desktop', () => {
+test('moves a new normal window to the trailing spare desktop', () => {
   const { context } = loadScript({ desktops: [] });
   const desktops = [makeDesktop(0), makeDesktop(1), makeDesktop(2)];
   const existing = ruleWindow({ desktop: desktops[1], title: 'Browser' });
 
-  const decision = context.getPlacementDecision({
+  const decision = context.getInitialPlacementDecision({
     window: ruleWindow({ desktop: desktops[0], title: 'Terminal' }),
     desktops,
     windows: [existing],
     sourceDesktop: desktops[0],
+    spareDesktop: desktops[2],
     rules: context.DEFAULT_RULES,
   });
 
-  assert.equal(decision.kind, 'move');
+  assert.equal(decision.kind, 'spread');
   assert.equal(decision.targetDesktop, desktops[2]);
-  assert.equal(decision.reason, 'next-after-last-non-empty');
+  assert.equal(decision.reason, 'trailing-spare');
 });
 
 test('selects an existing empty final desktop as the spare', () => {
@@ -105,35 +108,26 @@ test('returns null when the final desktop is occupied', () => {
   assert.equal(context.getTrailingSpareDesktop([d0], [browser]), null);
 });
 
-test('requests a new desktop when the last non-empty desktop is the final desktop', () => {
-  const { context } = loadScript({ desktops: [] });
-  const desktops = [makeDesktop(0), makeDesktop(1)];
-  const existing = ruleWindow({ desktop: desktops[1], title: 'Browser' });
+test('adds a trailing spare desktop at script startup when the final desktop is occupied', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0] });
 
-  const decision = context.getPlacementDecision({
-    window: ruleWindow({ desktop: desktops[0], title: 'Editor' }),
-    desktops,
-    windows: [existing],
-    sourceDesktop: desktops[0],
-    canCreateDesktop: true,
-    rules: context.DEFAULT_RULES,
-  });
-
-  assert.equal(decision.kind, 'create-and-move');
-  assert.equal(decision.insertIndex, 2);
+  assert.equal(h.workspace.desktops.length, 2);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), h.workspace.desktops[1]);
 });
 
 test('keeps portal and file chooser windows on their source desktop', () => {
   const { context } = loadScript({ desktops: [] });
   const source = makeDesktop(0);
-  const portalDecision = context.getPlacementDecision({
+  const portalDecision = context.getInitialPlacementDecision({
     window: ruleWindow({ desktop: source, resourceClass: 'xdg-desktop-portal-gtk' }),
     desktops: [source, makeDesktop(1)],
     windows: [ruleWindow({ desktop: source, title: 'Browser' })],
     sourceDesktop: source,
     rules: context.DEFAULT_RULES,
   });
-  const chooserDecision = context.getPlacementDecision({
+  const chooserDecision = context.getInitialPlacementDecision({
     window: ruleWindow({ desktop: source, role: 'GtkFileChooserDialog', title: 'Open File' }),
     desktops: [source, makeDesktop(1)],
     windows: [ruleWindow({ desktop: source, title: 'Browser' })],
@@ -141,9 +135,11 @@ test('keeps portal and file chooser windows on their source desktop', () => {
     rules: context.DEFAULT_RULES,
   });
 
-  assert.equal(portalDecision.kind, 'stay');
+  assert.equal(portalDecision.kind, 'source');
+  assert.equal(portalDecision.targetDesktop, source);
   assert.equal(portalDecision.reason, 'source-workspace-window');
-  assert.equal(chooserDecision.kind, 'stay');
+  assert.equal(chooserDecision.kind, 'source');
+  assert.equal(chooserDecision.targetDesktop, source);
   assert.equal(chooserDecision.reason, 'source-workspace-window');
 });
 
@@ -156,7 +152,7 @@ test('places same-group windows on the existing matching desktop', () => {
   };
   const existing = ruleWindow({ desktop: desktops[1], resourceClass: 'code-oss', title: 'Project' });
 
-  const decision = context.getPlacementDecision({
+  const decision = context.getInitialPlacementDecision({
     window: ruleWindow({ desktop: desktops[0], title: 'Markdown Preview' }),
     desktops,
     windows: [existing],
@@ -164,7 +160,7 @@ test('places same-group windows on the existing matching desktop', () => {
     rules,
   });
 
-  assert.equal(decision.kind, 'move');
+  assert.equal(decision.kind, 'group');
   assert.equal(decision.targetDesktop, desktops[1]);
   assert.equal(decision.reason, 'same-group');
 });
@@ -196,7 +192,7 @@ test('refreshes script config without globally reconfiguring KWin for titlebar m
   assert.equal(h.callDBusCalls.some((call) => call.includes('/KWin') || call.includes('reconfigure')), false);
 });
 
-test('continues delayed placement when requesting a script config refresh throws', () => {
+test('continues immediate placement when requesting a script config refresh throws', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
@@ -212,13 +208,9 @@ test('continues delayed placement when requesting a script config refresh throws
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
-  assert.equal(h.QTimer.pending, 2);
   assert.match(h.printed.at(-1), /failed to refresh script config: Error: D-Bus unavailable/);
-
-  h.QTimer.fireAll();
-
-  assert.equal(h.workspace.desktops.length, 2);
-  assert.equal(fresh.desktops[0], h.workspace.desktops[1]);
+  assert.equal(h.workspace.desktops.length, 4);
+  assert.equal(fresh.desktops[0], d2);
 });
 
 test('removes every empty desktop and activates the nearest occupied desktop', () => {
@@ -365,12 +357,11 @@ test('does not change focus or desktops when removal is unavailable', () => {
   assert.deepEqual([...h.workspace.desktops], [d0, d1]);
 });
 
-test('moves a freshly added window after the QTimer delay', () => {
+test('immediately consumes an existing trailing spare and appends the next spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const d2 = makeDesktop(2);
-  const existing = makeWindow({ caption: 'Browser', desktops: [d1] });
-  const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
+  const existing = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1] });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = existing;
 
@@ -378,32 +369,51 @@ test('moves a freshly added window after the QTimer delay', () => {
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
-  assert.equal(h.QTimer.pending, 2);
-  h.QTimer.fireAll();
-
-  assert.equal(h.workspace.desktops.length, 2);
-  assert.equal(fresh.desktops[0], h.workspace.desktops[1]);
-  assert.equal(h.workspace.currentDesktop, h.workspace.desktops[1]);
+  assert.equal(fresh.desktops[0], d1);
+  assert.equal(h.workspace.currentDesktop, d1);
   assert.equal(h.workspace.activeWindow, fresh);
+  assert.equal(h.workspace.desktops.length, 3);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), h.workspace.desktops[2]);
 });
 
-test('does not cascade desktop creation for windows added within the move delay', () => {
+test('keeps the first normal window on the current spare and appends another', () => {
   const d0 = makeDesktop(0);
   const h = loadScript({ windows: [], desktops: [d0] });
   h.workspace.currentDesktop = d0;
 
-  const a = makeWindow({ caption: 'A', desktops: [d0] });
-  const b = makeWindow({ caption: 'B', desktops: [d0] });
-  h.loadWindow(a);
-  h.workspace.windowAdded.fire(a);
-  h.loadWindow(b);
-  h.workspace.windowAdded.fire(b);
-
-  h.QTimer.fireAll();
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.windowAdded.fire(fresh);
 
   assert.equal(h.workspace.desktops.length, 2);
-  assert.equal(a.desktops[0], d0);
-  assert.equal(b.desktops[0], h.workspace.desktops[1]);
+  assert.equal(fresh.desktops[0], d0);
+  assert.equal(h.workspace.currentDesktop, d0);
+  assert.equal(h.workspace.activeWindow, fresh);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), h.workspace.desktops[1]);
+});
+
+test('rapid windows synchronously consume successive trailing spares', () => {
+  const d0 = makeDesktop(0);
+  const h = loadScript({ windows: [], desktops: [d0] });
+  h.workspace.currentDesktop = d0;
+
+  const first = makeWindow({ caption: 'A', desktops: [d0] });
+  h.loadWindow(first);
+  h.workspace.windowAdded.fire(first);
+  const secondSpare = h.workspace.desktops[1];
+
+  assert.equal(first.desktops[0], d0);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), secondSpare);
+
+  const second = makeWindow({ caption: 'B', desktops: [d0] });
+  h.loadWindow(second);
+  h.workspace.windowAdded.fire(second);
+
+  assert.equal(second.desktops[0], secondSpare);
+  assert.equal(h.workspace.currentDesktop, secondSpare);
+  assert.equal(h.workspace.activeWindow, second);
+  assert.equal(h.workspace.desktops.length, 3);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), h.workspace.desktops[2]);
 });
 
 test('reads same-desktop groups from a multi-line config string', () => {
@@ -430,7 +440,7 @@ test('keeps windows matching configured source-desktop application identifiers',
     ruleWindow({ desktop: source, appId: 'org.kde.gwenview' }),
     ruleWindow({ desktop: source, resourceName: 'capture1tool' }),
   ].forEach((window) => {
-    const decision = context.getPlacementDecision({
+    const decision = context.getInitialPlacementDecision({
       window,
       desktops: [source, makeDesktop(1)],
       windows: [ruleWindow({ desktop: source, title: 'Browser' })],
@@ -439,7 +449,7 @@ test('keeps windows matching configured source-desktop application identifiers',
     });
 
     assert.deepEqual({ kind: decision.kind, reason: decision.reason }, {
-      kind: 'stay',
+      kind: 'source',
       reason: 'source-workspace-window',
     });
   });
@@ -448,45 +458,47 @@ test('keeps windows matching configured source-desktop application identifiers',
 test('does not use a window title to match a source-desktop application rule', () => {
   const { context } = loadScript({ desktops: [] });
   const desktops = [makeDesktop(0), makeDesktop(1), makeDesktop(2)];
-  const decision = context.getPlacementDecision({
+  const decision = context.getInitialPlacementDecision({
     window: ruleWindow({ desktop: desktops[0], title: 'Spectacle' }),
     desktops,
     windows: [ruleWindow({ desktop: desktops[1], title: 'Browser' })],
     sourceDesktop: desktops[0],
+    spareDesktop: desktops[2],
     rules: {
       ...context.DEFAULT_RULES,
       sourceDesktopApplications: ['spectacle'],
     },
   });
 
-  assert.equal(decision.kind, 'move');
+  assert.equal(decision.kind, 'spread');
   assert.equal(decision.targetDesktop, desktops[2]);
-  assert.equal(decision.reason, 'next-after-last-non-empty');
+  assert.equal(decision.reason, 'trailing-spare');
 });
 
 test('treats a comma in a source-desktop application rule as a literal character', () => {
   const { context } = loadScript({ desktops: [] });
   const desktops = [makeDesktop(0), makeDesktop(1), makeDesktop(2)];
-  const decision = context.getPlacementDecision({
+  const decision = context.getInitialPlacementDecision({
     window: ruleWindow({ desktop: desktops[0], resourceClass: 'spectacle' }),
     desktops,
     windows: [ruleWindow({ desktop: desktops[1], title: 'Browser' })],
     sourceDesktop: desktops[0],
+    spareDesktop: desktops[2],
     rules: {
       ...context.DEFAULT_RULES,
       sourceDesktopApplications: ['spectacle, gwenview'],
     },
   });
 
-  assert.equal(decision.kind, 'move');
+  assert.equal(decision.kind, 'spread');
   assert.equal(decision.targetDesktop, desktops[2]);
-  assert.equal(decision.reason, 'next-after-last-non-empty');
+  assert.equal(decision.reason, 'trailing-spare');
 });
 
 test('gives source-desktop application rules precedence over same-desktop groups', () => {
   const { context } = loadScript({ desktops: [] });
   const desktops = [makeDesktop(0), makeDesktop(1), makeDesktop(2)];
-  const decision = context.getPlacementDecision({
+  const decision = context.getInitialPlacementDecision({
     window: ruleWindow({ desktop: desktops[0], resourceClass: 'Spectacle' }),
     desktops,
     windows: [ruleWindow({ desktop: desktops[1], resourceClass: 'gwenview' })],
@@ -499,7 +511,7 @@ test('gives source-desktop application rules precedence over same-desktop groups
   });
 
   assert.deepEqual({ kind: decision.kind, reason: decision.reason }, {
-    kind: 'stay',
+    kind: 'source',
     reason: 'source-workspace-window',
   });
 });
@@ -523,50 +535,68 @@ test('falls back to an empty list when the config value is missing', () => {
   assert.deepEqual([...h.context.config.rules.sameDesktopGroups], []);
 });
 
-test('groups a second window of the same app onto the first window desktop', () => {
+test('immediately groups a second window without duplicating the existing spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
+  const first = makeWindow({ caption: 'WeChat', resourceClass: 'wechat', desktops: [d1] });
   const h = loadScript({
-    windows: [],
+    windows: [first],
     desktops: [d0, d1, d2],
     config: { SameDesktopWindowGroups: 'wechat\nQQ' },
   });
   h.workspace.currentDesktop = d0;
 
-  const first = makeWindow({ caption: 'WeChat', resourceClass: 'wechat', desktops: [d1] });
-  h.loadWindow(first);
-  h.workspace.windowAdded.fire(first);
-  h.QTimer.fireAll();
-
   const second = makeWindow({ caption: 'WeChat', desktops: [d0] });
   h.loadWindow(second);
   h.workspace.windowAdded.fire(second);
-  h.QTimer.fireAll();
 
-  assert.deepEqual([...h.workspace.desktops], [d1]);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d2]);
   assert.equal(first.desktops[0], d1);
   assert.equal(second.desktops[0], d1);
+  assert.equal(h.workspace.currentDesktop, d1);
+  assert.equal(h.workspace.activeWindow, second);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), d2);
 });
 
-test('creates a virtual desktop when the target desktop does not exist', () => {
+test('immediately keeps a source-rule window in place and reuses the existing spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const existing = makeWindow({ caption: 'Browser', desktops: [d1] });
-  const h = loadScript({ windows: [existing], desktops: [d0, d1] });
+  const existing = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({
+    windows: [existing],
+    desktops: [d0, d1],
+    config: { SourceDesktopApplications: 'spectacle' },
+  });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = existing;
 
-  const fresh = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const fresh = makeWindow({ caption: 'Capture', resourceClass: 'spectacle', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
-  h.QTimer.fireAll();
 
   assert.equal(h.workspace.desktops.length, 2);
-  assert.equal(fresh.desktops[0], h.workspace.desktops[1]);
+  assert.equal(fresh.desktops[0], d0);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), d1);
 });
 
-test('keeps focus on the source window when configured', () => {
+test('immediately keeps a portal window in place and reuses the existing spare', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1] });
+  h.workspace.currentDesktop = d0;
+
+  const portal = makeWindow({ caption: 'Open File', resourceClass: 'xdg-desktop-portal-gtk', desktops: [d0] });
+  h.loadWindow(portal);
+  h.workspace.windowAdded.fire(portal);
+
+  assert.equal(portal.desktops[0], d0);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), d1);
+});
+
+test('restores prior focus when KWin activates the new window before windowAdded', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
@@ -579,36 +609,18 @@ test('keeps focus on the source window when configured', () => {
   });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = focused;
+  h.workspace.windowActivated.fire(focused);
 
   const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
   h.loadWindow(fresh);
+  h.workspace.activeWindow = fresh;
+  h.workspace.windowActivated.fire(fresh);
   h.workspace.windowAdded.fire(fresh);
-  h.QTimer.fireAll();
 
-  assert.equal(h.workspace.desktops.length, 3);
-  assert.equal(fresh.desktops[0], h.workspace.desktops[2]);
+  assert.equal(h.workspace.desktops.length, 4);
+  assert.equal(fresh.desktops[0], d2);
   assert.equal(h.workspace.activeWindow, focused);
   assert.equal(h.workspace.currentDesktop, d0);
-});
-
-test('cancels the pending move when the window closes before the timer fires', () => {
-  const d0 = makeDesktop(0);
-  const d1 = makeDesktop(1);
-  const d2 = makeDesktop(2);
-  const existing = makeWindow({ caption: 'Browser', desktops: [d1] });
-  const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
-  h.workspace.currentDesktop = d0;
-  h.workspace.activeWindow = existing;
-
-  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
-  h.loadWindow(fresh);
-  h.workspace.windowAdded.fire(fresh);
-  h.unloadWindow(fresh);
-  h.workspace.windowRemoved.fire(fresh);
-
-  h.QTimer.fireNext();
-
-  assert.equal(fresh.desktops[0], d0);
 });
 
 test('handles close signals only once even when both closed and windowRemoved fire', () => {
@@ -644,7 +656,7 @@ test('ignores late desktop-change signals from a removed window', () => {
   assert.equal(h.context.lastDesktopByWindow.has(closing), false);
 });
 
-test('cleans every empty desktop before placing a newly added window', () => {
+test('places immediately and later cleans every empty desktop', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
@@ -657,11 +669,13 @@ test('cleans every empty desktop before placing a newly added window', () => {
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
-  assert.equal(h.QTimer.pending, 2);
-  h.QTimer.fireNext();
+  const appendedSpare = h.workspace.desktops[4];
+  assert.equal(fresh.desktops[0], d3);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), appendedSpare);
+  assert.equal(h.QTimer.pending, 1);
+  h.QTimer.fireAll();
 
-  assert.deepEqual([...h.workspace.desktops], [d0, d2]);
-  assert.equal(fresh.desktops[0], d0);
+  assert.deepEqual([...h.workspace.desktops], [d2, d3]);
 });
 
 test('coalesces desktop-change signals and cleans every empty desktop', () => {
@@ -695,7 +709,9 @@ test('cleans the source desktop after script placement changes desktops', () => 
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
-  assert.equal(h.QTimer.pending, 2);
+  assert.equal(fresh.desktops[0], d2);
+  assert.equal(h.workspace.desktops.length, 4);
+  assert.equal(h.QTimer.pending, 1);
   h.QTimer.fireAll();
 
   assert.deepEqual([...h.workspace.desktops], [d1, fresh.desktops[0]]);

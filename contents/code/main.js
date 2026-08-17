@@ -1,4 +1,3 @@
-var WINDOW_CREATED_DELAY_MS = 500;
 var WINDOW_CLOSED_DELAY_MS = 300;
 
 var DEFAULT_RULES = {
@@ -28,7 +27,6 @@ var DEFAULT_RULES = {
 };
 
 var focusMru = [];
-var pendingMoves = new Map();
 var lastDesktopByWindow = new Map();
 var connectedWindows = new Set();
 var config = loadConfig();
@@ -184,10 +182,10 @@ function removeFromFocusMru(window) {
     focusMru.splice(index, 1);
 }
 
-function getPreviousFocusWindow() {
+function getPreviousFocusWindow(ignoredWindow) {
   for (var index = 0; index < focusMru.length; index++) {
     var window = focusMru[index];
-    if (window && getAllWindows().indexOf(window) >= 0)
+    if (window && window !== ignoredWindow && getAllWindows().indexOf(window) >= 0)
       return window;
   }
 
@@ -229,68 +227,49 @@ function cancelTimer(timer) {
     activeTimers.splice(index, 1);
 }
 
-function scheduleMove(window, context) {
-  var previous = pendingMoves.get(window);
-  if (previous)
-    cancelTimer(previous.timer);
+function ensureTrailingSpareDesktop() {
+  var desktops = getDesktops();
+  var windows = getAllWindows().map(toRuleWindow);
+  var spare = getTrailingSpareDesktop(desktops, windows);
+  if (spare)
+    return spare;
 
-  var token = previous ? previous.token + 1 : 1;
-  var timer = scheduleTimer(function () {
-    if (!pendingMoves.has(window) || pendingMoves.get(window).token !== token)
-      return;
-
-    pendingMoves.delete(window);
-    moveWindow(window, context);
-  }, WINDOW_CREATED_DELAY_MS);
-
-  pendingMoves.set(window, { token: token, timer: timer });
+  return createDesktopAt(desktops.length);
 }
 
-function cancelScheduledMove(window) {
-  var previous = pendingMoves.get(window);
-  if (previous)
-    cancelTimer(previous.timer);
-
-  pendingMoves.delete(window);
-}
-
-function moveWindow(window, context) {
+function placeWindowImmediately(window, context) {
   refreshConfig();
   var normalizedWindow = toRuleWindow(window);
-  if (!shouldTreatAsNormalWindow(normalizedWindow))
-    return;
-
+  var otherWindows = getAllWindows().filter(function (otherWindow) {
+    return otherWindow !== window;
+  }).map(toRuleWindow);
   var desktops = getDesktops();
-  var decision = getPlacementDecision({
+  var spare = getTrailingSpareDesktop(desktops, otherWindows);
+  if (!spare)
+    spare = createDesktopAt(desktops.length);
+
+  var decision = getInitialPlacementDecision({
     window: normalizedWindow,
     desktops: desktops,
-    windows: getAllWindows().filter(function (otherWindow) {
-      return otherWindow !== window && !pendingMoves.has(otherWindow);
-    }).map(toRuleWindow),
+    windows: otherWindows,
     sourceDesktop: context.desktop,
+    spareDesktop: spare,
     rules: config.rules,
-    canCreateDesktop: typeof workspace.createDesktop === 'function',
   });
 
   if (decision.kind === 'ignore')
-    return;
+    return decision;
 
-  var targetDesktop = decision.targetDesktop || null;
-  if (decision.kind === 'create-and-move')
-    targetDesktop = createDesktopAt(decision.insertIndex);
+  if (decision.targetDesktop && getWindowDesktop(window) !== decision.targetDesktop)
+    setWindowDesktop(window, decision.targetDesktop);
 
-  if (targetDesktop && getWindowDesktop(window) !== targetDesktop)
-    setWindowDesktop(window, targetDesktop);
-
-  if (config.keepCurrentFocus) {
+  ensureTrailingSpareDesktop();
+  if (config.keepCurrentFocus)
     restoreFocus(context);
-    return;
-  }
+  else if (decision.kind !== 'source')
+    activateWindow(window);
 
-  if (decision.kind === 'stay' && decision.reason === 'source-workspace-window')
-    return;
-
-  activateWindow(window);
+  return decision;
 }
 
 function cleanupAllEmptyDesktops(restorePreviousFocus) {
@@ -332,7 +311,7 @@ function cleanupAllEmptyDesktops(restorePreviousFocus) {
   });
 }
 
-function scheduleAllEmptyDesktopCleanup(restorePreviousFocus) {
+function scheduleDesktopReconciliation(restorePreviousFocus) {
   restorePreviousFocusAfterCleanup = restorePreviousFocusAfterCleanup || !!restorePreviousFocus;
   if (emptyDesktopCleanupTimer)
     return;
@@ -358,13 +337,17 @@ function onWindowAdded(window) {
   if (!window)
     return;
 
+  var activeWindow = workspace.activeWindow || null;
+  var context = {
+    desktop: getCurrentDesktop(),
+    focusWindow: activeWindow && activeWindow !== window
+      ? activeWindow
+      : getPreviousFocusWindow(window),
+  };
   requestScriptConfigRefresh();
   trackWindow(window);
-  scheduleAllEmptyDesktopCleanup(false);
-  scheduleMove(window, {
-    desktop: getCurrentDesktop(),
-    focusWindow: workspace.activeWindow || null,
-  });
+  placeWindowImmediately(window, context);
+  scheduleDesktopReconciliation(false);
 }
 
 function onWindowRemoved(window) {
@@ -373,11 +356,10 @@ function onWindowRemoved(window) {
 
   var restorePreviousFocus = focusMru[0] === window || workspace.activeWindow === window;
   removeFromFocusMru(window);
-  cancelScheduledMove(window);
   connectedWindows.delete(window);
   lastDesktopByWindow.delete(window);
   requestScriptConfigRefresh();
-  scheduleAllEmptyDesktopCleanup(restorePreviousFocus);
+  scheduleDesktopReconciliation(restorePreviousFocus);
 }
 
 function onWindowDesktopChanged(window) {
@@ -385,7 +367,7 @@ function onWindowDesktopChanged(window) {
     return;
 
   lastDesktopByWindow.set(window, getWindowDesktop(window));
-  scheduleAllEmptyDesktopCleanup(false);
+  scheduleDesktopReconciliation(false);
 }
 
 function trackWindow(window) {
@@ -483,35 +465,30 @@ function shouldTreatAsNormalWindow(window) {
   return window.normalWindow === true;
 }
 
-function getPlacementDecision(args) {
+function getRulePlacementDecision(args) {
   var window = args.window;
   if (!shouldTreatAsNormalWindow(window))
     return { kind: 'ignore', reason: 'not-normal-window' };
 
   var rules = mergeRules(DEFAULT_RULES, args.rules);
-
   if (shouldStayOnSourceDesktop(window, rules))
-    return { kind: 'stay', reason: 'source-workspace-window' };
+    return { kind: 'source', targetDesktop: args.sourceDesktop, reason: 'source-workspace-window' };
 
   var sameGroupDesktop = getSameGroupDesktop(window, args.windows, rules);
   if (sameGroupDesktop)
-    return { kind: 'move', targetDesktop: sameGroupDesktop, reason: 'same-group' };
+    return { kind: 'group', targetDesktop: sameGroupDesktop, reason: 'same-group' };
 
-  var lastNonEmptyIndex = getLastNonEmptyDesktopIndex(args.desktops, args.windows, window);
-  if (lastNonEmptyIndex < 0)
-    return { kind: 'stay', reason: 'no-non-empty-desktop' };
+  return { kind: 'spread', reason: 'trailing-spare' };
+}
 
-  var targetIndex = lastNonEmptyIndex + 1;
-  if (targetIndex < args.desktops.length)
-    return { kind: 'move', targetDesktop: args.desktops[targetIndex], reason: 'next-after-last-non-empty' };
-
-  if (args.canCreateDesktop)
-    return { kind: 'create-and-move', insertIndex: targetIndex, reason: 'next-after-last-non-empty' };
-
+function getInitialPlacementDecision(args) {
+  var decision = getRulePlacementDecision(args);
+  if (decision.kind !== 'spread')
+    return decision;
   return {
-    kind: 'move',
-    targetDesktop: args.desktops[args.desktops.length - 1] || args.sourceDesktop,
-    reason: 'next-after-last-non-empty',
+    kind: 'spread',
+    targetDesktop: args.spareDesktop || args.desktops[args.desktops.length - 1] || args.sourceDesktop,
+    reason: 'trailing-spare',
   };
 }
 
@@ -719,3 +696,4 @@ workspace.windowActivated.connect(recordFocus);
 
 getAllWindows().forEach(trackWindow);
 recordFocus(workspace.activeWindow || null);
+ensureTrailingSpareDesktop();
