@@ -1,4 +1,6 @@
 var WINDOW_CLOSED_DELAY_MS = 300;
+var IDENTITY_DEBOUNCE_MS = 50;
+var IDENTITY_DEADLINE_MS = 1000;
 
 var DEFAULT_RULES = {
   auxiliaryDialogTitles: [
@@ -30,6 +32,7 @@ var activationMru = [];
 var normalFocusMru = [];
 var lastDesktopByWindow = new Map();
 var connectedWindows = new Set();
+var placementStates = new Map();
 var config = loadConfig();
 
 function loadConfig() {
@@ -292,6 +295,111 @@ function placeWindowImmediately(window, context) {
   return decision;
 }
 
+function beginIdentitySettling(window, context, decision) {
+  if (!window || !decision || decision.kind === 'ignore')
+    return false;
+
+  var state = {
+    sourceDesktop: context.desktop,
+    sourceFocusWindow: context.focusWindow,
+    initialKind: decision.kind,
+    initialTarget: decision.targetDesktop || getWindowDesktop(window),
+    expectedDesktop: getWindowDesktop(window),
+    corrected: false,
+    debounceTimer: null,
+    deadlineTimer: null,
+    connections: [],
+  };
+  placementStates.set(window, state);
+
+  [
+    'captionChanged',
+    'desktopFileNameChanged',
+    'windowClassChanged',
+    'windowRoleChanged',
+    'transientChanged',
+  ].forEach(function (name) {
+    var signal = window[name];
+    if (!signal || typeof signal.connect !== 'function')
+      return;
+
+    var handler = function () { scheduleIdentityRecheck(window); };
+    signal.connect(handler);
+    state.connections.push({ signal: signal, handler: handler });
+  });
+
+  state.deadlineTimer = scheduleTimer(function () {
+    state.deadlineTimer = null;
+    recheckWindowIdentity(window, true);
+  }, IDENTITY_DEADLINE_MS);
+  return true;
+}
+
+function scheduleIdentityRecheck(window) {
+  var state = placementStates.get(window);
+  if (!state || state.corrected)
+    return;
+
+  cancelTimer(state.debounceTimer);
+  state.debounceTimer = scheduleTimer(function () {
+    state.debounceTimer = null;
+    recheckWindowIdentity(window, false);
+  }, IDENTITY_DEBOUNCE_MS);
+}
+
+function finishIdentitySettling(window) {
+  var state = placementStates.get(window);
+  if (!state)
+    return;
+
+  cancelTimer(state.debounceTimer);
+  cancelTimer(state.deadlineTimer);
+  state.connections.forEach(function (connection) {
+    if (typeof connection.signal.disconnect === 'function')
+      connection.signal.disconnect(connection.handler);
+  });
+  placementStates.delete(window);
+}
+
+function recheckWindowIdentity(window, atDeadline) {
+  var state = placementStates.get(window);
+  if (!state || state.corrected || getAllWindows().indexOf(window) < 0) {
+    finishIdentitySettling(window);
+    scheduleDesktopReconciliation(false);
+    return;
+  }
+
+  var otherWindows = getAllWindows().filter(function (otherWindow) {
+    return otherWindow !== window;
+  }).map(toRuleWindow);
+  var decision = getRulePlacementDecision({
+    window: toRuleWindow(window),
+    windows: otherWindows,
+    sourceDesktop: state.sourceDesktop,
+    rules: config.rules,
+  });
+  var target = null;
+  if (decision.kind === 'ignore')
+    target = state.sourceDesktop;
+  else if (decision.kind === 'source' || decision.kind === 'group')
+    target = decision.targetDesktop;
+
+  if (target && target !== getWindowDesktop(window)) {
+    state.expectedDesktop = target;
+    state.corrected = true;
+    setWindowDesktop(window, target);
+    ensureTrailingSpareDesktop();
+    finishIdentitySettling(window);
+    scheduleDesktopReconciliation(false);
+    return;
+  }
+
+  if (target || atDeadline) {
+    finishIdentitySettling(window);
+    scheduleDesktopReconciliation(false);
+  }
+}
+
 function cleanupAllEmptyDesktops(restorePreviousFocus) {
   if (!config.removeEmptyVirtualDesktops)
     return;
@@ -339,6 +447,10 @@ function scheduleDesktopReconciliation(restorePreviousFocus) {
     emptyDesktopCleanupTimer = null;
     var shouldRestorePreviousFocus = restorePreviousFocusAfterCleanup;
     restorePreviousFocusAfterCleanup = false;
+    if (placementStates.size > 0) {
+      scheduleDesktopReconciliation(shouldRestorePreviousFocus);
+      return;
+    }
     cleanupAllEmptyDesktops(shouldRestorePreviousFocus);
   }, WINDOW_CLOSED_DELAY_MS);
 }
@@ -364,8 +476,9 @@ function onWindowAdded(window) {
       : getPreviousActivationWindow(window),
   };
   trackWindow(window);
-  placeWindowImmediately(window, context);
-  scheduleDesktopReconciliation(false);
+  var decision = placeWindowImmediately(window, context);
+  if (!beginIdentitySettling(window, context, decision))
+    scheduleDesktopReconciliation(false);
 }
 
 function onWindowRemoved(window) {
@@ -375,6 +488,7 @@ function onWindowRemoved(window) {
   var restorePreviousFocus = normalFocusMru[0] === window || workspace.activeWindow === window;
   removeFromActivationMru(window);
   removeFromNormalFocusMru(window);
+  finishIdentitySettling(window);
   connectedWindows.delete(window);
   lastDesktopByWindow.delete(window);
   scheduleDesktopReconciliation(restorePreviousFocus);
@@ -384,7 +498,12 @@ function onWindowDesktopChanged(window) {
   if (!connectedWindows.has(window))
     return;
 
-  lastDesktopByWindow.set(window, getWindowDesktop(window));
+  var desktop = getWindowDesktop(window);
+  var state = placementStates.get(window);
+  if (state && state.expectedDesktop && desktop !== state.expectedDesktop)
+    finishIdentitySettling(window);
+
+  lastDesktopByWindow.set(window, desktop);
   scheduleDesktopReconciliation(false);
 }
 

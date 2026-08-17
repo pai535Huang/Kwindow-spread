@@ -192,6 +192,13 @@ export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
     const timer = timers.shift();
     if (timer) timer._fire();
   };
+  QTimer.fireInterval = (interval) => {
+    const index = timers.findIndex((timer) => timer.interval === interval);
+    if (index < 0) return false;
+    const [timer] = timers.splice(index, 1);
+    timer._fire();
+    return true;
+  };
   QTimer.fireAll = () => {
     while (timers.length > 0) QTimer.fireNext();
   };
