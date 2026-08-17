@@ -258,8 +258,8 @@ function restoreFocus(context) {
 }
 
 var activeTimers = [];
-var emptyDesktopCleanupTimer = null;
-var restorePreviousFocusAfterCleanup = false;
+var desktopReconciliationTimer = null;
+var restorePreviousFocusAfterReconciliation = false;
 
 function scheduleTimer(callback, delayMs) {
   var timer = new QTimer();
@@ -514,63 +514,74 @@ function recheckWindowIdentity(window, atDeadline) {
   }
 }
 
-function cleanupAllEmptyDesktops(restorePreviousFocus) {
-  if (!config.removeEmptyVirtualDesktops)
-    return;
-
-  if (typeof workspace.removeDesktop !== 'function')
-    return;
-
+function reconcileTrailingSpareDesktops(restorePreviousFocus) {
   var desktops = Array.prototype.slice.call(getDesktops());
   if (desktops.length === 0)
-    return;
+    return null;
 
   var windows = getAllWindows().map(toRuleWindow);
   var occupiedDesktops = desktops.filter(function (desktop) {
     return desktopHasNormalWindow(desktop, windows, null);
   });
-  var retainedDesktop = null;
 
   if (occupiedDesktops.length === 0) {
-    var currentDesktop = getCurrentDesktop();
-    retainedDesktop = desktops.indexOf(currentDesktop) >= 0 ? currentDesktop : desktops[0];
-  } else {
-    var previousWindow = restorePreviousFocus ? getPreviousNormalFocusWindow() : null;
-    if (previousWindow)
-      activateWindow(previousWindow);
+    if (placementStates.size > 0 || reservedDesktopByWindow.size > 0)
+      return ensureTrailingSpareDesktop();
 
-    var activeDesktop = getCurrentDesktop();
-    if (!desktopHasNormalWindow(activeDesktop, windows, null)) {
-      var activeIndex = desktops.indexOf(activeDesktop);
-      activateDesktop(getNearestNonEmptyDesktop(desktops, windows, activeIndex));
+    var currentDesktop = getCurrentDesktop();
+    var retainedDesktop = desktops.indexOf(currentDesktop) >= 0 ? currentDesktop : desktops[0];
+    if (config.removeEmptyVirtualDesktops && typeof workspace.removeDesktop === 'function') {
+      desktops.forEach(function (desktop) {
+        if (desktop !== retainedDesktop)
+          removeDesktopIfStillEmpty(desktop);
+      });
     }
+    return retainedDesktop;
+  }
+
+  var spare = ensureTrailingSpareDesktop();
+  if (!config.removeEmptyVirtualDesktops || typeof workspace.removeDesktop !== 'function')
+    return spare;
+
+  desktops = Array.prototype.slice.call(getDesktops());
+  var previousWindow = restorePreviousFocus ? getPreviousNormalFocusWindow() : null;
+  if (previousWindow)
+    activateWindow(previousWindow);
+
+  var activeDesktop = getCurrentDesktop();
+  if (activeDesktop !== spare && !desktopHasNormalWindow(activeDesktop, windows, null)) {
+    var activeIndex = desktops.indexOf(activeDesktop);
+    activateDesktop(getNearestNonEmptyDesktop(desktops, windows, activeIndex));
   }
 
   desktops.forEach(function (desktop) {
-    if (desktop !== retainedDesktop)
+    if (desktop !== spare)
       removeDesktopIfStillEmpty(desktop);
   });
+  return spare;
 }
 
 function scheduleDesktopReconciliation(restorePreviousFocus) {
-  restorePreviousFocusAfterCleanup = restorePreviousFocusAfterCleanup || !!restorePreviousFocus;
-  if (emptyDesktopCleanupTimer)
+  restorePreviousFocusAfterReconciliation = restorePreviousFocusAfterReconciliation || !!restorePreviousFocus;
+  if (desktopReconciliationTimer)
     return;
 
-  emptyDesktopCleanupTimer = scheduleTimer(function () {
-    emptyDesktopCleanupTimer = null;
-    var shouldRestorePreviousFocus = restorePreviousFocusAfterCleanup;
-    restorePreviousFocusAfterCleanup = false;
+  desktopReconciliationTimer = scheduleTimer(function () {
+    desktopReconciliationTimer = null;
+    var shouldRestorePreviousFocus = restorePreviousFocusAfterReconciliation;
+    restorePreviousFocusAfterReconciliation = false;
     if (placementStates.size > 0) {
       scheduleDesktopReconciliation(shouldRestorePreviousFocus);
       return;
     }
-    cleanupAllEmptyDesktops(shouldRestorePreviousFocus);
+    reconcileTrailingSpareDesktops(shouldRestorePreviousFocus);
   }, WINDOW_CLOSED_DELAY_MS);
 }
 
 function removeDesktopIfStillEmpty(desktop) {
   if (getDesktops().indexOf(desktop) < 0)
+    return;
+  if (isDesktopReserved(desktop))
     return;
 
   var windows = getAllWindows().map(toRuleWindow);

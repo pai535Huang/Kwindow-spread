@@ -213,20 +213,19 @@ test('immediate placement uses config loaded at script startup', () => {
   assert.deepEqual([...h.context.config.rules.sourceDesktopApplications], ['spectacle']);
 });
 
-test('removes every empty desktop and activates the nearest occupied desktop', () => {
+test('cleanup removes intermediate empties and retains the trailing spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
   const d3 = makeDesktop(3);
-  const browser = makeWindow({ caption: 'Browser', desktops: [d1] });
-  const chat = makeWindow({ caption: 'Chat', desktops: [d3] });
-  const h = loadScript({ windows: [browser, chat], desktops: [d0, d1, d2, d3] });
-  h.workspace.currentDesktop = d2;
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, d1, d2, d3] });
+  h.workspace.currentDesktop = d0;
 
-  h.context.cleanupAllEmptyDesktops(false);
+  h.context.reconcileTrailingSpareDesktops(false);
 
-  assert.equal(h.workspace.currentDesktop, d1);
-  assert.deepEqual([...h.workspace.desktops], [d1, d3]);
+  assert.deepEqual([...h.workspace.desktops], [d0, d3]);
+  assert.equal(browser.desktops[0], d0);
 });
 
 test('keeps every desktop assigned to a multi-desktop window', () => {
@@ -236,32 +235,110 @@ test('keeps every desktop assigned to a multi-desktop window', () => {
   const window = makeWindow({ caption: 'Browser', desktops: [d0, d2] });
   const h = loadScript({ windows: [window], desktops: [d0, d1, d2] });
   h.workspace.currentDesktop = d0;
+  const spare = h.workspace.desktops[3];
 
-  h.context.cleanupAllEmptyDesktops(false);
+  h.context.reconcileTrailingSpareDesktops(false);
 
-  assert.deepEqual([...h.workspace.desktops], [d0, d2]);
+  assert.deepEqual([...h.workspace.desktops], [d0, d2, spare]);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), spare);
 });
 
-test('restores the previous focus before removing empty desktops', () => {
+test('reconciliation restores MRU focus before removing an active middle empty', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const previous = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const other = makeWindow({ caption: 'Editor', desktops: [d2] });
+  const h = loadScript({ windows: [previous, other], desktops: [d0, d1, d2, d3] });
+  h.workspace.windowActivated.fire(previous);
+  h.workspace.currentDesktop = d1;
+
+  h.context.reconcileTrailingSpareDesktops(true);
+
+  assert.equal(h.workspace.activeWindow, previous);
+  assert.equal(h.workspace.currentDesktop, d0);
+  assert.deepEqual([...h.workspace.desktops], [d0, d2, d3]);
+});
+
+test('reconciliation restores normal MRU focus instead of the latest auxiliary activation', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
   const previous = makeWindow({ caption: 'Browser', desktops: [d0] });
-  const closing = makeWindow({ caption: 'Editor', desktops: [d1] });
-  const h = loadScript({ windows: [previous, closing], desktops: [d0, d1, d2] });
-  h.workspace.activeWindow = previous;
+  const dialog = makeWindow({ caption: 'Dialog', dialog: true, desktops: [d1] });
+  const h = loadScript({ windows: [previous, dialog], desktops: [d0, d1, d2] });
   h.workspace.windowActivated.fire(previous);
-
+  h.workspace.windowActivated.fire(dialog);
   h.workspace.currentDesktop = d1;
-  h.workspace.activeWindow = closing;
-  h.unloadWindow(closing);
+  h.workspace.activeWindow = dialog;
 
-  assert.equal(h.context.normalFocusMru.includes(closing), false);
-  h.context.cleanupAllEmptyDesktops(true);
+  h.context.reconcileTrailingSpareDesktops(true);
 
   assert.equal(h.workspace.activeWindow, previous);
   assert.equal(h.workspace.currentDesktop, d0);
-  assert.deepEqual([...h.workspace.desktops], [d0]);
+  assert.deepEqual([...h.workspace.desktops], [d0, d2]);
+});
+
+test('reconciliation leaves an active trailing spare active', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, d1] });
+  h.workspace.currentDesktop = d1;
+
+  h.context.reconcileTrailingSpareDesktops(false);
+
+  assert.equal(h.workspace.currentDesktop, d1);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+});
+
+test('reconciliation activates the nearest occupied desktop before removing an active middle empty', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const d4 = makeDesktop(4);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d1] });
+  const editor = makeWindow({ caption: 'Editor', desktops: [d3] });
+  const h = loadScript({ windows: [browser, editor], desktops: [d0, d1, d2, d3, d4] });
+  h.workspace.currentDesktop = d2;
+
+  h.context.reconcileTrailingSpareDesktops(false);
+
+  assert.equal(h.workspace.currentDesktop, d1);
+  assert.deepEqual([...h.workspace.desktops], [d1, d3, d4]);
+});
+
+test('reconciliation waits for identity reservations and then removes only unrelated empties', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const existing = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1, d2, d3] });
+  h.workspace.currentDesktop = d0;
+
+  const lateWindow = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(lateWindow);
+  h.workspace.windowAdded.fire(lateWindow);
+  const appendedSpare = h.workspace.desktops[4];
+  assert.equal(h.context.reservedDesktopByWindow.get(lateWindow), d3);
+
+  h.context.scheduleDesktopReconciliation(false);
+  assert.equal(h.QTimer.fireInterval(300), true);
+  assert.equal(h.workspace.desktops.includes(d3), true);
+  assert.equal(h.context.reservedDesktopByWindow.get(lateWindow), d3);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), appendedSpare);
+
+  lateWindow.caption = 'Document';
+  lateWindow.captionChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+  assert.equal(lateWindow.desktops[0], d3);
+  assert.equal(h.QTimer.fireInterval(300), true);
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d3, appendedSpare]);
+  assert.equal(h.context.reservedDesktopByWindow.has(lateWindow), false);
 });
 
 test('reactivation removes a window from normal focus history after it becomes a dialog', () => {
@@ -295,32 +372,35 @@ test('normal focus lookup lazily removes a window that became transient without 
   assert.equal(h.context.normalFocusMru.includes(stale), false);
 });
 
-test('keeps the current desktop when no normal windows remain', () => {
+test('no normal windows converge to the current desktop as the sole spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
   const h = loadScript({ desktops: [d0, d1, d2] });
   h.workspace.currentDesktop = d1;
 
-  h.context.cleanupAllEmptyDesktops(false);
+  h.context.reconcileTrailingSpareDesktops(false);
 
   assert.deepEqual([...h.workspace.desktops], [d1]);
   assert.equal(h.workspace.currentDesktop, d1);
 });
 
-test('does not clean empty desktops when automatic removal is disabled', () => {
+test('disabled cleanup preserves user empties in order but still appends a trailing spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const occupied = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const d2 = makeDesktop(2);
+  const occupied = makeWindow({ caption: 'Browser', desktops: [d2] });
   const h = loadScript({
     windows: [occupied],
-    desktops: [d0, d1],
+    desktops: [d0, d1, d2],
     config: { RemoveEmptyVirtualDesktops: false },
   });
 
-  h.context.cleanupAllEmptyDesktops(false);
+  const spare = h.workspace.desktops[3];
+  h.context.reconcileTrailingSpareDesktops(false);
 
-  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d2, spare]);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), spare);
 });
 
 test('disabled cleanup keeps desktops after an added-window event', () => {
@@ -339,7 +419,7 @@ test('disabled cleanup keeps desktops after an added-window event', () => {
   assert.deepEqual([...h.workspace.desktops], [d0, d1]);
 });
 
-test('disabled cleanup keeps desktops after a moved-window event', () => {
+test('disabled cleanup appends a spare after a moved window occupies the tail', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const moving = makeWindow({ caption: 'Editor', desktops: [d0] });
@@ -352,7 +432,9 @@ test('disabled cleanup keeps desktops after a moved-window event', () => {
   moving.desktops = [d1];
   h.QTimer.fireAll();
 
-  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+  assert.deepEqual([...h.workspace.desktops].slice(0, 2), [d0, d1]);
+  assert.equal(h.workspace.desktops.length, 3);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), h.workspace.desktops[2]);
 });
 
 test('disabled cleanup keeps desktops after a removed-window event', () => {
@@ -381,11 +463,26 @@ test('does not change focus or desktops when removal is unavailable', () => {
   h.workspace.activeWindow = occupied;
   delete h.workspace.removeDesktop;
 
-  h.context.cleanupAllEmptyDesktops(false);
+  h.context.reconcileTrailingSpareDesktops(false);
 
   assert.equal(h.workspace.currentDesktop, d1);
   assert.equal(h.workspace.activeWindow, occupied);
   assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+});
+
+test('closing the final normal window retains the current desktop as the sole spare', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const closing = makeWindow({ caption: 'Editor', desktops: [d1] });
+  const h = loadScript({ windows: [closing], desktops: [d0, d1] });
+  h.workspace.currentDesktop = d1;
+
+  h.unloadWindow(closing);
+  h.workspace.windowRemoved.fire(closing);
+  h.QTimer.fireAll();
+
+  assert.deepEqual([...h.workspace.desktops], [d1]);
+  assert.equal(h.workspace.currentDesktop, d1);
 });
 
 test('immediately consumes an existing trailing spare and appends the next spare', () => {
@@ -1284,7 +1381,7 @@ test('closing a settling window cancels timers and disconnects every identity si
   ].forEach((signal) => assert.equal(signal.handlerCount, 0));
 });
 
-test('places immediately and later cleans every empty desktop', () => {
+test('places immediately and later cleans intermediate empties while retaining the spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
@@ -1304,10 +1401,10 @@ test('places immediately and later cleans every empty desktop', () => {
   assert.equal(h.QTimer._timers.some((timer) => timer.interval === 1000), true);
   h.QTimer.fireAll();
 
-  assert.deepEqual([...h.workspace.desktops], [d2, d3]);
+  assert.deepEqual([...h.workspace.desktops], [d2, d3, appendedSpare]);
 });
 
-test('coalesces desktop-change signals and cleans every empty desktop', () => {
+test('coalesces desktop-change signals and retains one trailing spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
@@ -1323,7 +1420,7 @@ test('coalesces desktop-change signals and cleans every empty desktop', () => {
   assert.equal(h.QTimer.pending, 1);
   h.QTimer.fireAll();
 
-  assert.deepEqual([...h.workspace.desktops], [d1, d2]);
+  assert.deepEqual([...h.workspace.desktops], [d1, d2, d3]);
 });
 
 test('cleans the source desktop after script placement changes desktops', () => {
@@ -1337,6 +1434,7 @@ test('cleans the source desktop after script placement changes desktops', () => 
   const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
+  const appendedSpare = h.workspace.desktops[3];
 
   assert.equal(fresh.desktops[0], d2);
   assert.equal(h.workspace.desktops.length, 4);
@@ -1344,11 +1442,12 @@ test('cleans the source desktop after script placement changes desktops', () => 
   assert.equal(h.QTimer._timers.some((timer) => timer.interval === 1000), true);
   h.QTimer.fireAll();
 
-  assert.deepEqual([...h.workspace.desktops], [d1, fresh.desktops[0]]);
+  assert.deepEqual([...h.workspace.desktops], [d1, fresh.desktops[0], appendedSpare]);
   assert.equal(fresh.desktops[0], h.workspace.desktops[1]);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), appendedSpare);
 });
 
-test('closing a window removes all empty desktops and restores previous focus', () => {
+test('closing a window restores previous focus and retains the trailing spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
@@ -1367,10 +1466,10 @@ test('closing a window removes all empty desktops and restores previous focus', 
 
   assert.equal(h.workspace.currentDesktop, d0);
   assert.equal(h.workspace.activeWindow, browser);
-  assert.deepEqual([...h.workspace.desktops], [d0]);
+  assert.deepEqual([...h.workspace.desktops], [d0, d3]);
 });
 
-test('closing the final window retains its current desktop only', () => {
+test('closing the final window prefers its current desktop over an existing trailing spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
