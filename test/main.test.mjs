@@ -948,6 +948,74 @@ test('identity changes do not advance a spread window to the newly appended spar
   assert.equal(h.context.placementStates.has(window), true);
 });
 
+test('an initially ignored window that becomes normal uses its captured initial target', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1] });
+  h.workspace.currentDesktop = d0;
+  const window = makeWindow({ caption: 'Internal', normalWindow: false, desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  const laterSpare = h.workspace.createDesktop(h.workspace.desktops.length, 'Later spare');
+
+  assert.equal(window.desktops[0], d0);
+  assert.equal(h.context.placementStates.has(window), true);
+  window.normalWindow = true;
+  window.windowClassChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+
+  assert.equal(window.desktops[0], d1);
+  assert.notEqual(window.desktops[0], laterSpare);
+  assert.equal(h.context.placementStates.has(window), false);
+});
+
+test('an initial source-title decision that becomes spread uses its captured initial target', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1] });
+  h.workspace.currentDesktop = d0;
+  const window = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  const laterSpare = h.workspace.createDesktop(h.workspace.desktops.length, 'Later spare');
+
+  assert.equal(window.desktops[0], d0);
+  window.caption = 'Document';
+  window.captionChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+
+  assert.equal(window.desktops[0], d1);
+  assert.notEqual(window.desktops[0], laterSpare);
+  assert.equal(h.context.placementStates.has(window), false);
+});
+
+test('moving a settling window to all desktops cancels late correction', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({
+    windows: [existing],
+    desktops: [d0, d1],
+    config: { SourceDesktopApplications: 'spectacle' },
+  });
+  const window = makeWindow({ caption: 'Screenshot', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  assert.equal(window.desktops[0], d1);
+
+  window.onAllDesktops = true;
+  window.desktops = [];
+  assert.equal(h.context.placementStates.has(window), false);
+  window.resourceClass = 'spectacle';
+  window.windowClassChanged.fire();
+  h.QTimer.fireAll();
+
+  assert.equal(window.desktops.length, 0);
+  assert.equal(window.onAllDesktops, true);
+});
+
 test('identity deadline releases unchanged window state and connections', () => {
   const d0 = makeDesktop(0);
   const window = makeWindow({ caption: 'App', desktops: [d0] });

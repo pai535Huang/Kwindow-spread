@@ -279,6 +279,7 @@ function placeWindowImmediately(window, context) {
     spareDesktop: spare,
     rules: config.rules,
   });
+  decision.initialTarget = spare || desktops[desktops.length - 1] || context.desktop;
 
   if (decision.kind === 'ignore')
     return decision;
@@ -296,14 +297,14 @@ function placeWindowImmediately(window, context) {
 }
 
 function beginIdentitySettling(window, context, decision) {
-  if (!window || !decision || decision.kind === 'ignore')
+  if (!window || !decision)
     return false;
 
   var state = {
     sourceDesktop: context.desktop,
     sourceFocusWindow: context.focusWindow,
     initialKind: decision.kind,
-    initialTarget: decision.targetDesktop || getWindowDesktop(window),
+    initialTarget: decision.initialTarget,
     expectedDesktop: getWindowDesktop(window),
     corrected: false,
     debounceTimer: null,
@@ -379,10 +380,18 @@ function recheckWindowIdentity(window, atDeadline) {
     rules: config.rules,
   });
   var target = null;
-  if (decision.kind === 'ignore')
+  var shouldSettle = false;
+  if (decision.kind === 'spread' && state.initialKind !== 'spread') {
+    target = state.initialTarget;
+    shouldSettle = true;
+  } else if (decision.kind === 'ignore' && state.initialKind !== 'ignore') {
     target = state.sourceDesktop;
-  else if (decision.kind === 'source' || decision.kind === 'group')
+    shouldSettle = true;
+  } else if ((decision.kind === 'source' || decision.kind === 'group') &&
+             (decision.kind !== state.initialKind || decision.targetDesktop !== getWindowDesktop(window))) {
     target = decision.targetDesktop;
+    shouldSettle = true;
+  }
 
   if (target && target !== getWindowDesktop(window)) {
     state.expectedDesktop = target;
@@ -394,7 +403,7 @@ function recheckWindowIdentity(window, atDeadline) {
     return;
   }
 
-  if (target || atDeadline) {
+  if (shouldSettle || atDeadline) {
     finishIdentitySettling(window);
     scheduleDesktopReconciliation(false);
   }
@@ -498,12 +507,13 @@ function onWindowDesktopChanged(window) {
   if (!connectedWindows.has(window))
     return;
 
-  var desktop = getWindowDesktop(window);
   var state = placementStates.get(window);
-  if (state && state.expectedDesktop && desktop !== state.expectedDesktop)
+  var desktops = getWindowDesktops(window);
+  if (state && state.expectedDesktop &&
+      (window.onAllDesktops || desktops.length !== 1 || desktops[0] !== state.expectedDesktop))
     finishIdentitySettling(window);
 
-  lastDesktopByWindow.set(window, desktop);
+  lastDesktopByWindow.set(window, getWindowDesktop(window));
   scheduleDesktopReconciliation(false);
 }
 
