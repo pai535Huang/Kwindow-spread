@@ -326,6 +326,7 @@ function promoteTemporaryDesktopsOccupiedBy(window) {
 function reclaimTemporaryReservationDesktops() {
   getAllWindows().forEach(promoteTemporaryDesktopsOccupiedBy);
 
+  var releasedActiveTemporaryDesktop = false;
   var removedDesktop = true;
   while (removedDesktop) {
     removedDesktop = false;
@@ -336,6 +337,11 @@ function reclaimTemporaryReservationDesktops() {
         continue;
       if (isDesktopReserved(desktop))
         continue;
+      if (desktop === getCurrentDesktop()) {
+        reservationCreatedDesktops.delete(desktop);
+        releasedActiveTemporaryDesktop = true;
+        continue;
+      }
 
       var windows = getAllWindows().map(toRuleWindow);
       if (desktopHasNormalWindow(desktop, windows, null)) {
@@ -358,6 +364,7 @@ function reclaimTemporaryReservationDesktops() {
       }
     }
   }
+  return releasedActiveTemporaryDesktop;
 }
 
 function removeTemporaryReservationDesktop(desktop) {
@@ -468,7 +475,7 @@ function scheduleIdentityRecheck(window) {
 function finishIdentitySettling(window) {
   var state = placementStates.get(window);
   if (!state)
-    return;
+    return false;
 
   cancelTimer(state.debounceTimer);
   cancelTimer(state.deadlineTimer);
@@ -478,14 +485,13 @@ function finishIdentitySettling(window) {
   });
   reservedDesktopByWindow.delete(window);
   placementStates.delete(window);
-  reclaimTemporaryReservationDesktops();
+  return reclaimTemporaryReservationDesktops();
 }
 
 function recheckWindowIdentity(window, atDeadline) {
   var state = placementStates.get(window);
   if (!state || state.corrected || getAllWindows().indexOf(window) < 0) {
-    finishIdentitySettling(window);
-    scheduleDesktopReconciliation(false);
+    scheduleDesktopReconciliation(finishIdentitySettling(window));
     return;
   }
 
@@ -512,14 +518,12 @@ function recheckWindowIdentity(window, atDeadline) {
     state.corrected = true;
     setWindowDesktop(window, target);
     ensureTrailingSpareDesktop();
-    finishIdentitySettling(window);
-    scheduleDesktopReconciliation(false);
+    scheduleDesktopReconciliation(finishIdentitySettling(window));
     return;
   }
 
   if (atDeadline) {
-    finishIdentitySettling(window);
-    scheduleDesktopReconciliation(false);
+    scheduleDesktopReconciliation(finishIdentitySettling(window));
   }
 }
 
@@ -558,7 +562,8 @@ function reconcileTrailingSpareDesktops(restorePreviousFocus) {
     activateWindow(previousWindow);
 
   var activeDesktop = getCurrentDesktop();
-  if (activeDesktop !== spare && !desktopHasNormalWindow(activeDesktop, windows, null)) {
+  if ((activeDesktop !== spare || restorePreviousFocus) &&
+      !desktopHasNormalWindow(activeDesktop, windows, null)) {
     var activeIndex = desktops.indexOf(activeDesktop);
     activateDesktop(getNearestNonEmptyDesktop(desktops, windows, activeIndex));
   }
@@ -623,10 +628,10 @@ function onWindowRemoved(window) {
   var restorePreviousFocus = normalFocusMru[0] === window || workspace.activeWindow === window;
   removeFromActivationMru(window);
   removeFromNormalFocusMru(window);
-  finishIdentitySettling(window);
+  restorePreviousFocus = finishIdentitySettling(window) || restorePreviousFocus;
   connectedWindows.delete(window);
   lastDesktopByWindow.delete(window);
-  reclaimTemporaryReservationDesktops();
+  restorePreviousFocus = reclaimTemporaryReservationDesktops() || restorePreviousFocus;
   scheduleDesktopReconciliation(restorePreviousFocus);
 }
 
@@ -634,14 +639,15 @@ function onWindowDesktopChanged(window) {
   if (!connectedWindows.has(window))
     return;
 
+  var restorePreviousFocus = false;
   var state = placementStates.get(window);
   if (state && !sameWindowPlacement(getWindowPlacement(window), state.expectedPlacement))
-    finishIdentitySettling(window);
+    restorePreviousFocus = finishIdentitySettling(window);
 
   lastDesktopByWindow.set(window, getWindowDesktop(window));
   promoteTemporaryDesktopsOccupiedBy(window);
-  reclaimTemporaryReservationDesktops();
-  scheduleDesktopReconciliation(false);
+  restorePreviousFocus = reclaimTemporaryReservationDesktops() || restorePreviousFocus;
+  scheduleDesktopReconciliation(restorePreviousFocus);
 }
 
 function trackWindow(window) {

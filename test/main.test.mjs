@@ -1304,6 +1304,63 @@ test('ordinary reconciliation clears ownership of a removed temporary reservatio
   });
 });
 
+test('disabled cleanup treats the active temporary desktop as user-owned', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({
+    windows: [existing],
+    desktops: [d0, d1],
+    config: { RemoveEmptyVirtualDesktops: false },
+  });
+
+  const sourceWindow = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(sourceWindow);
+  h.workspace.windowAdded.fire(sourceWindow);
+  const temporaryDesktop = h.workspace.desktops[2];
+  assert.equal(h.context.reservationCreatedDesktops.has(temporaryDesktop), true);
+
+  h.workspace.currentDesktop = temporaryDesktop;
+  assert.equal(h.QTimer.fireInterval(1000), true);
+
+  assert.equal(h.workspace.desktops.includes(h.workspace.currentDesktop), true);
+  assert.equal(h.workspace.desktops.includes(temporaryDesktop), true);
+  assert.equal(h.context.reservationCreatedDesktops.has(temporaryDesktop), false);
+  assert.equal(h.QTimer.fireInterval(300), true);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, temporaryDesktop]);
+  assert.equal(h.workspace.currentDesktop, temporaryDesktop);
+});
+
+[
+  ['normal MRU', true],
+  ['nearest occupied desktop', false],
+].forEach(([focusPath, seedMru]) => {
+  test(`enabled cleanup leaves an active temporary desktop through ${focusPath}`, () => {
+    const d0 = makeDesktop(0);
+    const d1 = makeDesktop(1);
+    const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+    const h = loadScript({ windows: [existing], desktops: [d0, d1] });
+    if (seedMru) h.workspace.windowActivated.fire(existing);
+
+    const sourceWindow = makeWindow({ caption: 'Open File', desktops: [d0] });
+    h.loadWindow(sourceWindow);
+    h.workspace.windowAdded.fire(sourceWindow);
+    const temporaryDesktop = h.workspace.desktops[2];
+    h.workspace.currentDesktop = temporaryDesktop;
+
+    assert.equal(h.QTimer.fireInterval(1000), true);
+    assert.equal(h.workspace.desktops.includes(h.workspace.currentDesktop), true);
+    assert.equal(h.workspace.desktops.includes(temporaryDesktop), true);
+    assert.equal(h.context.reservationCreatedDesktops.has(temporaryDesktop), false);
+
+    assert.equal(h.QTimer.fireInterval(300), true);
+    assert.equal(h.workspace.currentDesktop, d0);
+    assert.equal(h.workspace.desktops.includes(h.workspace.currentDesktop), true);
+    assert.deepEqual([...h.workspace.desktops], [d0, temporaryDesktop]);
+    assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), temporaryDesktop);
+  });
+});
+
 test('a user-occupied temporary reservation desktop is never reclaimed', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
