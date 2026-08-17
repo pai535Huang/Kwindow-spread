@@ -744,6 +744,7 @@ function onWindowRemoved(window) {
   if (!window || !connectedWindows.has(window))
     return;
 
+  refreshConfig();
   var restorePreviousFocus = normalFocusMru[0] === window || workspace.activeWindow === window;
   removeFromActivationMru(window);
   removeFromNormalFocusMru(window);
@@ -757,6 +758,7 @@ function onWindowDesktopChanged(window) {
   if (!connectedWindows.has(window))
     return;
 
+  refreshConfig();
   var state = placementStates.get(window);
   if (state && !sameWindowPlacement(getWindowPlacement(window), state.expectedPlacement))
     finishIdentitySettling(window);

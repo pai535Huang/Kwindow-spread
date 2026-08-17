@@ -833,6 +833,34 @@ test('disabled cleanup keeps desktops after a removed-window event', () => {
   assert.deepEqual([...h.workspace.desktops], [d0, d1]);
 });
 
+test('window removal uses cleanup configuration applied after script startup', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const closing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [closing], desktops: [d0, d1] });
+  h.config.RemoveEmptyVirtualDesktops = false;
+
+  h.unloadWindow(closing);
+  h.workspace.windowRemoved.fire(closing);
+  h.QTimer.fireAll();
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+});
+
+test('desktop changes use cleanup configuration applied after script startup', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const moving = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [moving], desktops: [d0, d1] });
+  h.config.RemoveEmptyVirtualDesktops = false;
+
+  moving.desktops = [d1];
+  h.QTimer.fireAll();
+
+  assert.equal(h.workspace.desktops.includes(d0), true);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), h.workspace.desktops[2]);
+});
+
 test('does not change focus or desktops when removal is unavailable', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
