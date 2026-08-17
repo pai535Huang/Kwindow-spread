@@ -5,6 +5,8 @@ import { loadScript, mainSource, makeDesktop, makeWindow, ruleWindow } from './h
 
 const configSchemaSource = readFileSync(new URL('../contents/config/main.xml', import.meta.url), 'utf8');
 const configUiSource = readFileSync(new URL('../contents/ui/config.ui', import.meta.url), 'utf8');
+const readmeSource = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+const metadataSource = readFileSync(new URL('../metadata.json', import.meta.url), 'utf8');
 
 test('avoids JS features missing from the KWin QJSEngine', () => {
   assert.equal(mainSource.includes('.flatMap('), false, 'flatMap is missing from KWin QJSEngine');
@@ -28,6 +30,33 @@ test('exposes only the new editable source-desktop application setting', () => {
 test('exposes no optional desktop-creation setting', () => {
   assert.equal(configSchemaSource.includes('name="CreateVirtualDesktops"'), false);
   assert.equal(configUiSource.includes('name="kcfg_CreateVirtualDesktops"'), false);
+});
+
+test('documents Plasma 6 Wayland and the trailing spare desktop', () => {
+  assert.match(readmeSource, /Plasma 6.*Wayland/i);
+  assert.match(readmeSource, /XWayland/i);
+  assert.match(readmeSource, /trailing empty virtual desktop/i);
+  assert.match(readmeSource, /without\s+(?:a\s+)?fixed 500 ms delay/i);
+  assert.match(readmeSource, /disable and re-enable/i);
+  assert.match(configUiSource, /Remove extra empty virtual desktops while keeping one trailing spare/);
+  assert.equal(
+    JSON.parse(metadataSource).KPlugin.Description,
+    'Keep a trailing empty virtual desktop ready and place new application windows there.',
+  );
+});
+
+test('release files do not advertise obsolete desktop creation or legacy support', () => {
+  const releaseSources = [readmeSource, metadataSource, configSchemaSource, configUiSource].join('\n');
+  assert.doesNotMatch(releaseSources, /CreateVirtualDesktops/);
+  assert.doesNotMatch(releaseSources, /kpackagetool5|On Plasma 5|Use .*Plasma 5/i);
+  assert.doesNotMatch(
+    readmeSource,
+    /next window[^\n]{0,40}(?:refresh|reload)|(?:refresh|reload)[^\n]{0,40}next window/i,
+  );
+  assert.doesNotMatch(
+    readmeSource,
+    /500\s*ms\s+(?:before|then)|(?:wait|waiting|waits|delays)\b[^\n]{0,40}\b500\s*ms/i,
+  );
 });
 
 test('models disconnectable Plasma 6 identity signals', () => {

@@ -16,7 +16,7 @@
     <item>
      <widget class="QCheckBox" name="kcfg_RemoveEmptyVirtualDesktops">
       <property name="text">
-       <string>Remove empty virtual desktops after windows close</string>
+       <string>Remove extra empty virtual desktops while keeping one trailing spare</string>
       </property>
       <property name="checked">
        <bool>true</bool>

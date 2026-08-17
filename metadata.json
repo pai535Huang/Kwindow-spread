@@ -7,7 +7,7 @@
             }
         ],
         "Category": "Window Management",
-        "Description": "Move newly created normal windows to the next KDE Plasma virtual desktop after the last non-empty virtual desktop.",
+        "Description": "Keep a trailing empty virtual desktop ready and place new application windows there.",
         "EnabledByDefault": false,
         "Icon": "preferences-system-windows-script-test",
         "Id": "kwindow-spread",
