@@ -347,6 +347,107 @@ test('createDesktopAt recognizes creation completed before an exception', () => 
   assert.doesNotMatch(h.printed.join('\n'), /failed to create virtual desktop/);
 });
 
+test('startup does not report a non-trailing inserted desktop as the spare', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  let misplaced = null;
+  const h = loadScript({
+    windows: [browser],
+    desktops: [d0],
+    workspaceOverrides: {
+      createDesktop(position, name) {
+        misplaced = makeDesktop(position, name);
+        this.desktops.splice(0, 0, misplaced);
+        return misplaced;
+      },
+    },
+  });
+
+  assert.notEqual(misplaced, null);
+  assert.notEqual(h.workspace.desktops[h.workspace.desktops.length - 1], misplaced);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), null);
+  assert.equal(h.context.reservationCreatedDesktops.has(misplaced), true);
+});
+
+test('ensure retries a misplaced success and returns only the verified trailing spare', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ desktops: [d0] });
+  h.loadWindow(browser);
+  let calls = 0;
+  let misplaced = null;
+  let trailing = null;
+  h.workspace.createDesktop = (position, name) => {
+    calls += 1;
+    const desktop = makeDesktop(position, name);
+    if (calls === 1) {
+      misplaced = desktop;
+      h.workspace.desktops.splice(0, 0, desktop);
+    } else {
+      trailing = desktop;
+      h.workspace.desktops.splice(h.workspace.desktops.length, 0, desktop);
+    }
+    return desktop;
+  };
+  const budget = h.context.makeDesktopCreationBudget(2);
+
+  const spare = h.context.ensureTrailingSpareDesktop(budget);
+
+  assert.equal(calls, 2);
+  assert.equal(budget.calls, 2);
+  assert.equal(spare, trailing);
+  assert.notEqual(spare, misplaced);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), trailing);
+  assert.equal(h.context.reservationCreatedDesktops.has(misplaced), true);
+});
+
+test('ensure stops at the operation budget when every creation is misplaced', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ desktops: [d0] });
+  h.loadWindow(browser);
+  let calls = 0;
+  h.workspace.createDesktop = (position, name) => {
+    calls += 1;
+    const desktop = makeDesktop(position, name);
+    h.workspace.desktops.splice(0, 0, desktop);
+    return desktop;
+  };
+  const budget = h.context.makeDesktopCreationBudget(2);
+
+  const spare = h.context.ensureTrailingSpareDesktop(budget);
+
+  assert.equal(spare, null);
+  assert.equal(calls, 2);
+  assert.equal(budget.calls, 2);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), null);
+});
+
+test('ensure uses final trailing state and reclaims extra desktops from one create call', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ desktops: [d0] });
+  h.loadWindow(browser);
+  let misplaced = null;
+  let trailing = null;
+  h.workspace.createDesktop = (position, name) => {
+    misplaced = makeDesktop(position, name + ' misplaced');
+    trailing = makeDesktop(position + 1, name + ' trailing');
+    h.workspace.desktops.splice(0, 0, misplaced);
+    h.workspace.desktops.splice(h.workspace.desktops.length, 0, trailing);
+    return misplaced;
+  };
+
+  const spare = h.context.ensureTrailingSpareDesktop(h.context.makeDesktopCreationBudget(1));
+
+  assert.equal(spare, trailing);
+  assert.equal(h.context.reservationCreatedDesktops.has(misplaced), true);
+  h.context.reclaimTemporaryReservationDesktops();
+  assert.equal(h.workspace.desktops.includes(misplaced), false);
+  assert.equal(h.workspace.desktops.includes(trailing), true);
+  assert.equal(h.context.reservationCreatedDesktops.size, 0);
+});
+
 test('keeps portal and file chooser windows on their source desktop', () => {
   const { context } = loadScript({ desktops: [] });
   const source = makeDesktop(0);

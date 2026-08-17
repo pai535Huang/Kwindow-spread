@@ -241,14 +241,20 @@ function makeDesktopCreationBudget(maxCalls) {
   };
 }
 
-function findCreatedDesktop(before, after) {
+function findCreatedDesktops(before, after) {
+  var created = [];
   if (after.length <= before.length)
-    return null;
+    return created;
   for (var index = 0; index < after.length; index++) {
     if (!resolveDesktopReference(after[index], before))
-      return after[index];
+      created.push(after[index]);
   }
-  return null;
+  return created;
+}
+
+function findCreatedDesktop(before, after) {
+  var created = findCreatedDesktops(before, after);
+  return created.length > 0 ? created[0] : null;
 }
 
 function createDesktopAt(index, creationBudget) {
@@ -462,21 +468,35 @@ function cancelTimer(timer) {
 }
 
 function ensureTrailingSpareDesktop(creationBudget) {
-  var desktops = getDesktops();
-  var windows = getAllWindows().map(toRuleWindow);
-  var spare = getTrailingSpareDesktop(desktops, windows);
-  if (spare)
-    return spare;
-
   creationBudget = creationBudget || makeDesktopCreationBudget(1);
+  while (true) {
+    var desktops = Array.prototype.slice.call(getDesktops());
+    var windows = getAllWindows().map(toRuleWindow);
+    var spare = getTrailingSpareDesktop(desktops, windows);
+    if (spare)
+      return spare;
+    if (creationBudget.failed || creationBudget.calls >= creationBudget.maxCalls)
+      return null;
 
-  var previousTail = desktops.length > 0 ? desktops[desktops.length - 1] : null;
-  var createdForReservation = previousTail && isDesktopReserved(previousTail) &&
-    !desktopHasNormalWindow(previousTail, windows, null);
-  var created = createDesktopAt(desktops.length, creationBudget);
-  if (created && createdForReservation)
-    reservationCreatedDesktops.add(created);
-  return created;
+    var previousTail = desktops.length > 0 ? desktops[desktops.length - 1] : null;
+    var createdForReservation = previousTail && isDesktopReserved(previousTail) &&
+      !desktopHasNormalWindow(previousTail, windows, null);
+    var created = createDesktopAt(desktops.length, creationBudget);
+    var refreshedDesktops = Array.prototype.slice.call(getDesktops());
+    var createdDesktops = findCreatedDesktops(desktops, refreshedDesktops);
+    var verifiedSpare = getTrailingSpareDesktop(
+      refreshedDesktops,
+      getAllWindows().map(toRuleWindow)
+    );
+    createdDesktops.forEach(function (createdDesktop) {
+      if (createdForReservation || !sameDesktopIdentity(createdDesktop, verifiedSpare))
+        reservationCreatedDesktops.add(createdDesktop);
+    });
+    if (verifiedSpare)
+      return verifiedSpare;
+    if (!created)
+      return null;
+  }
 }
 
 function promoteTemporaryDesktopsOccupiedBy(window) {
