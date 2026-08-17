@@ -1,7 +1,14 @@
-# AI tooling artifacts
+# Local tooling artifacts
 docs/superpowers/
-.worktrees/
+.agents/
+.codex/
 .claude/
 .cursor/
 .opencode/
+.gemini/
 AGENTS.md
+CLAUDE.md
+GEMINI.md
+.github/copilot-instructions.md
+
+.worktrees/
