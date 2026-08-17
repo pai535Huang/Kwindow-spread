@@ -39,6 +39,8 @@ test('documents Plasma 6 Wayland and the trailing spare desktop', () => {
   assert.match(readmeSource, /Plasma 6.*Wayland/i);
   assert.match(readmeSource, /XWayland/i);
   assert.match(readmeSource, /trailing empty virtual desktop/i);
+  assert.match(readmeSource, /always maintains one trailing empty virtual desktop/i);
+  assert.doesNotMatch(readmeSource, /By default, the script keeps a trailing empty/i);
   assert.match(readmeSource, /without\s+(?:a\s+)?fixed 500 ms delay/i);
   assert.match(readmeSource, /select \*\*Apply\*\*/i);
   assert.match(configUiSource, /Remove extra empty virtual desktops while keeping one trailing spare/);

@@ -4,28 +4,28 @@ Kwindow-spread is a KDE Plasma 6 KWin script for Wayland sessions. It supports
 both native Wayland and XWayland application windows. Plasma 5 and standalone
 X11 sessions are outside its support scope.
 
-By default, the script keeps a trailing empty virtual desktop ready for
-ordinary new normal application windows. Dialogs, transient windows, portals,
-configured source-desktop applications, and same-desktop groups follow the
-exceptions described below. For a window on the default spreading path, the
-target already exists when KWin reports it, so the window can be assigned
-without a fixed 500 ms delay or a create-then-move flash on the current
-desktop. The script then appends the next trailing spare.
+The script always maintains one trailing empty virtual desktop. Ordinary newly
+opened normal application windows use that desktop by default; dialogs,
+transient windows, portals, configured source-desktop applications, and
+same-desktop groups follow the exceptions described below. For a window on the
+default spreading path, the target already exists when KWin reports it, so the
+window can be assigned without a fixed 500 ms delay or a create-then-move flash
+on the current desktop. The script then appends the next trailing spare.
 
 ## Behavior
 
 - Always keeps one trailing empty virtual desktop ready. This is a built-in
   invariant and cannot be disabled.
-- Places a new normal window on the existing trailing spare synchronously,
-  then creates the next spare before handling another new window.
+- Places an ordinary new normal window without a matching exception on the
+  existing trailing spare synchronously, then creates the next spare.
 - Leaves dialogs, transient windows, file pickers, portal windows, and other
   auxiliary windows on their source desktop.
 - Keeps configured source-desktop applications on their source desktop.
 - Places configured same-desktop application groups with an existing member.
-- Rechecks window identity through KWin events for about one second when a
-  title, app ID, window role, transient relationship, or XWayland `WM_CLASS`
-  arrives late. It applies at most one correction and does not override a
-  manual desktop move or take focus back from the user.
+- For an initially normal window, rechecks identity through KWin events for
+  about one second when a title, app ID, window role, transient relationship,
+  or XWayland `WM_CLASS` arrives late. It applies at most one correction and
+  does not override a manual desktop move or take focus back from the user.
 - Optionally keeps focus on the current window when another window opens.
 
 Placement rules are evaluated before ordinary spreading: auxiliary and portal
