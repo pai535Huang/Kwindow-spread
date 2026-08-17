@@ -399,6 +399,10 @@ test('ensure retries a misplaced success and returns only the verified trailing 
   assert.notEqual(spare, misplaced);
   assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), trailing);
   assert.equal(h.context.reservationCreatedDesktops.has(misplaced), true);
+  h.context.reclaimTemporaryReservationDesktops();
+  assert.equal(h.workspace.desktops.includes(misplaced), false);
+  assert.equal(h.workspace.desktops.includes(trailing), true);
+  assert.equal(h.context.reservationCreatedDesktops.size, 0);
 });
 
 test('ensure stops at the operation budget when every creation is misplaced', () => {
@@ -423,10 +427,10 @@ test('ensure stops at the operation budget when every creation is misplaced', ()
   assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), null);
 });
 
-test('ensure uses final trailing state and reclaims extra desktops from one create call', () => {
+test('ensure does not claim or remove ambiguous desktops from one create call', () => {
   const d0 = makeDesktop(0);
   const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
-  const h = loadScript({ desktops: [d0] });
+  const h = loadScript({ desktops: [d0], config: { RemoveEmptyVirtualDesktops: false } });
   h.loadWindow(browser);
   let misplaced = null;
   let trailing = null;
@@ -441,9 +445,10 @@ test('ensure uses final trailing state and reclaims extra desktops from one crea
   const spare = h.context.ensureTrailingSpareDesktop(h.context.makeDesktopCreationBudget(1));
 
   assert.equal(spare, trailing);
-  assert.equal(h.context.reservationCreatedDesktops.has(misplaced), true);
+  assert.equal(h.context.reservationCreatedDesktops.has(misplaced), false);
+  assert.equal(h.context.reservationCreatedDesktops.has(trailing), false);
   h.context.reclaimTemporaryReservationDesktops();
-  assert.equal(h.workspace.desktops.includes(misplaced), false);
+  assert.equal(h.workspace.desktops.includes(misplaced), true);
   assert.equal(h.workspace.desktops.includes(trailing), true);
   assert.equal(h.context.reservationCreatedDesktops.size, 0);
 });

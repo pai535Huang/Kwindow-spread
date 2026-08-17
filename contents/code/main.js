@@ -488,10 +488,10 @@ function ensureTrailingSpareDesktop(creationBudget) {
       refreshedDesktops,
       getAllWindows().map(toRuleWindow)
     );
-    createdDesktops.forEach(function (createdDesktop) {
-      if (createdForReservation || !sameDesktopIdentity(createdDesktop, verifiedSpare))
-        reservationCreatedDesktops.add(createdDesktop);
-    });
+    var attributedDesktop = createdDesktops.length === 1 ? createdDesktops[0] : null;
+    if (attributedDesktop &&
+        (createdForReservation || !sameDesktopIdentity(attributedDesktop, verifiedSpare)))
+      reservationCreatedDesktops.add(attributedDesktop);
     if (verifiedSpare)
       return verifiedSpare;
     if (!created)
