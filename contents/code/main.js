@@ -46,6 +46,10 @@ function loadConfig() {
   };
 }
 
+function refreshConfig() {
+  config = loadConfig();
+}
+
 function readBoolConfig(name, fallback) {
   try {
     return !!readConfig(name, fallback);
@@ -722,6 +726,7 @@ function onWindowAdded(window) {
   if (!window)
     return;
 
+  refreshConfig();
   var activeWindow = workspace.activeWindow || null;
   var context = {
     desktop: getCurrentDesktop(),
@@ -739,6 +744,7 @@ function onWindowRemoved(window) {
   if (!window || !connectedWindows.has(window))
     return;
 
+  refreshConfig();
   var restorePreviousFocus = normalFocusMru[0] === window || workspace.activeWindow === window;
   removeFromActivationMru(window);
   removeFromNormalFocusMru(window);
@@ -752,6 +758,7 @@ function onWindowDesktopChanged(window) {
   if (!connectedWindows.has(window))
     return;
 
+  refreshConfig();
   var state = placementStates.get(window);
   if (state && !sameWindowPlacement(getWindowPlacement(window), state.expectedPlacement))
     finishIdentitySettling(window);
