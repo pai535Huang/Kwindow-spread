@@ -1234,6 +1234,58 @@ test('immediately keeps a source-rule window in place without consuming the spar
   assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), d1);
 });
 
+test('a source-rule window occupying the trailing spare appends exactly one replacement', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({
+    windows: [existing],
+    desktops: [d0, d1],
+    config: { SourceDesktopApplications: 'spectacle' },
+  });
+  h.workspace.currentDesktop = d1;
+
+  const source = makeWindow({ caption: 'Capture', resourceClass: 'spectacle', desktops: [d1] });
+  h.loadWindow(source);
+  h.workspace.windowAdded.fire(source);
+
+  const d2 = h.workspace.desktops[2];
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d2]);
+  assert.equal(source.desktops[0], d1);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), d2);
+
+  const ordinary = makeWindow({ caption: 'Terminal', desktops: [d1] });
+  h.loadWindow(ordinary);
+  h.workspace.windowAdded.fire(ordinary);
+
+  const d3 = h.workspace.desktops[3];
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d2, d3]);
+  assert.equal(ordinary.desktops[0], d2);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), d3);
+});
+
+test('a same-group target on the trailing spare appends one replacement', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const anchor = makeWindow({ caption: 'WeChat', resourceClass: 'wechat', desktops: [d0] });
+  const h = loadScript({
+    windows: [browser, anchor],
+    desktops: [d0, d1],
+    config: { SameDesktopWindowGroups: 'wechat' },
+  });
+  anchor.desktops = [d1];
+
+  const grouped = makeWindow({ caption: 'WeChat', desktops: [d0] });
+  h.loadWindow(grouped);
+  h.workspace.windowAdded.fire(grouped);
+
+  const d2 = h.workspace.desktops[2];
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d2]);
+  assert.equal(grouped.desktops[0], d1);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), d2);
+});
+
 test('immediately keeps a portal window in place without consuming the spare', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
@@ -1248,6 +1300,23 @@ test('immediately keeps a portal window in place without consuming the spare', (
   assert.equal(portal.desktops[0], d0);
   assert.deepEqual([...h.workspace.desktops], [d0, d1]);
   assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), d1);
+});
+
+test('a normal portal window occupying the trailing spare appends one replacement', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1] });
+  h.workspace.currentDesktop = d1;
+
+  const portal = makeWindow({ caption: 'Open File', resourceClass: 'xdg-desktop-portal-gtk', desktops: [d1] });
+  h.loadWindow(portal);
+  h.workspace.windowAdded.fire(portal);
+
+  const d2 = h.workspace.desktops[2];
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d2]);
+  assert.equal(portal.desktops[0], d1);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), d2);
 });
 
 test('restores prior focus when KWin activates the new window before windowAdded', () => {

@@ -474,8 +474,7 @@ function placeWindowImmediately(window, context) {
   if (decision.targetDesktop && getWindowDesktop(window) !== decision.targetDesktop)
     setWindowDesktop(window, decision.targetDesktop);
 
-  if (decision.kind === 'spread')
-    ensureTrailingSpareDesktop(creationBudget);
+  ensureTrailingSpareDesktop(creationBudget);
   if (config.keepCurrentFocus)
     restoreFocus(context);
   else if (decision.kind !== 'source')
