@@ -266,15 +266,27 @@ function removeDesktop(desktop) {
   if (!desktop)
     return false;
 
+  return performDesktopRemoval(requestedDesktop, desktop, 'virtual desktop');
+}
+
+function performDesktopRemoval(requestedDesktop, resolvedDesktop, description) {
+  var operationError = null;
   try {
-    workspace.removeDesktop(desktop);
+    workspace.removeDesktop(resolvedDesktop);
   } catch (error) {
-    print('Kwindow-spread: failed to remove virtual desktop: ' + error);
-    return false;
+    operationError = error;
   }
-  if (clearTemporaryOwnershipAfterRemoval(requestedDesktop))
+
+  if (clearTemporaryOwnershipAfterRemoval(requestedDesktop)) {
+    if (operationError)
+      print('Kwindow-spread: removed ' + description + ' despite operation error: ' + operationError);
     return true;
-  print('Kwindow-spread: failed to remove virtual desktop: workspace kept the desktop');
+  }
+
+  if (operationError)
+    print('Kwindow-spread: failed to remove ' + description + ': ' + operationError);
+  else
+    print('Kwindow-spread: failed to remove ' + description + ': workspace kept the desktop');
   return false;
 }
 
@@ -488,16 +500,7 @@ function removeTemporaryReservationDesktop(desktop) {
   if (!desktop)
     return false;
 
-  try {
-    workspace.removeDesktop(desktop);
-  } catch (error) {
-    print('Kwindow-spread: failed to remove temporary reservation desktop: ' + error);
-    return false;
-  }
-  if (clearTemporaryOwnershipAfterRemoval(requestedDesktop))
-    return true;
-  print('Kwindow-spread: failed to remove temporary reservation desktop: workspace kept the desktop');
-  return false;
+  return performDesktopRemoval(requestedDesktop, desktop, 'temporary reservation desktop');
 }
 
 function placeWindowImmediately(window, context) {

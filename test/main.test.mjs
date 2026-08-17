@@ -655,6 +655,32 @@ test('one thrown removal does not stop later empty removals', () => {
   assert.match(h.printed.join('\n'), /failed to remove virtual desktop/);
 });
 
+test('reconciliation recognizes an active desktop removed before removeDesktop throws', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, d1, d2, d3] });
+  h.context.reservationCreatedDesktops.add(d1);
+  h.workspace.windowActivated.fire(browser);
+  h.workspace.currentDesktop = d1;
+  h.workspace.activeWindow = null;
+  const originalRemove = h.workspace.removeDesktop.bind(h.workspace);
+  h.workspace.removeDesktop = (desktop) => {
+    originalRemove(desktop);
+    if (desktop === d1) throw new Error('late D-Bus error');
+  };
+
+  h.context.reconcileTrailingSpareDesktops(true);
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d3]);
+  assert.equal(h.context.reservationCreatedDesktops.has(d1), false);
+  assert.equal(h.workspace.currentDesktop, d0);
+  assert.equal(h.workspace.activeWindow, browser);
+  assert.equal(h.workspace.desktops.includes(h.workspace.currentDesktop), true);
+});
+
 test('one no-op removal does not stop later empty removals', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
@@ -701,6 +727,32 @@ test('failed temporary removal retains ownership for a later retry', () => {
   assert.equal(h.context.removeTemporaryReservationDesktop(d1), false);
   assert.equal(h.context.reservationCreatedDesktops.has(d1), true);
   assert.equal(h.workspace.desktops.includes(d1), true);
+});
+
+test('temporary reclaim recognizes removal completed before removeDesktop throws', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, d1, d2, d3] });
+  h.context.reservationCreatedDesktops.add(d1);
+  h.context.reservationCreatedDesktops.add(d2);
+  h.workspace.currentDesktop = d0;
+  h.workspace.activeWindow = browser;
+  const originalRemove = h.workspace.removeDesktop.bind(h.workspace);
+  h.workspace.removeDesktop = (desktop) => {
+    originalRemove(desktop);
+    if (desktop === d2) throw new Error('late D-Bus error');
+  };
+
+  h.context.reclaimTemporaryReservationDesktops();
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d3]);
+  assert.equal(h.context.reservationCreatedDesktops.size, 0);
+  assert.equal(h.workspace.currentDesktop, d0);
+  assert.equal(h.workspace.activeWindow, browser);
+  assert.equal(h.workspace.desktops.includes(h.workspace.currentDesktop), true);
 });
 
 test('temporary ownership follows same-id replacement objects until occupied', () => {
