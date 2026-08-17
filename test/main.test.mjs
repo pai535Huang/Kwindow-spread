@@ -117,6 +117,170 @@ test('adds a trailing spare desktop at script startup when the final desktop is 
   assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), h.workspace.desktops[1]);
 });
 
+test('creation failure is attempted at most once per placement operation', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  let attempts = 0;
+  const h = loadScript({
+    windows: [browser],
+    desktops: [d0],
+    workspaceOverrides: {
+      createDesktop() {
+        attempts += 1;
+        throw new Error('desktop limit');
+      },
+    },
+  });
+  const window = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.loadWindow(window);
+
+  assert.doesNotThrow(() => h.workspace.windowAdded.fire(window));
+  assert.equal(window.desktops[0], d0);
+  assert.equal(attempts, 2, 'one startup attempt and one placement attempt');
+  assert.match(h.printed.join('\n'), /failed to create virtual desktop/);
+});
+
+test('missing desktop creation support falls back to a current desktop object', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({
+    windows: [browser],
+    desktops: [d0],
+    workspaceOverrides: { createDesktop: undefined },
+  });
+  const window = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.loadWindow(window);
+
+  assert.doesNotThrow(() => h.workspace.windowAdded.fire(window));
+  assert.equal(window.desktops[0], d0);
+  assert.equal(h.workspace.desktops.includes(window.desktops[0]), true);
+});
+
+test('no-op desktop creation is bounded and keeps placement valid', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  let attempts = 0;
+  const h = loadScript({
+    windows: [browser],
+    desktops: [d0],
+    workspaceOverrides: {
+      createDesktop() {
+        attempts += 1;
+        return makeDesktop(99);
+      },
+    },
+  });
+  const window = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+
+  assert.equal(attempts, 2, 'one startup attempt and one placement attempt');
+  assert.equal(window.desktops[0], d0);
+  assert.equal(h.workspace.desktops.includes(window.desktops[0]), true);
+});
+
+test('ignored-window placement also shares one bounded creation attempt', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  let attempts = 0;
+  const h = loadScript({
+    windows: [browser],
+    desktops: [d0],
+    workspaceOverrides: {
+      createDesktop() {
+        attempts += 1;
+      },
+    },
+  });
+  const popup = makeWindow({ normalWindow: false, popupMenu: true, desktops: [d0] });
+  h.loadWindow(popup);
+  h.workspace.windowAdded.fire(popup);
+
+  assert.equal(attempts, 2, 'one startup attempt and one added-window attempt');
+  assert.equal(popup.desktops[0], d0);
+});
+
+test('a stale target resolves to the existing trailing spare', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const stale = makeDesktop(99);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, d1] });
+
+  assert.equal(h.context.resolveExistingTarget(stale, d0), d1);
+});
+
+test('desktop assignment resolves a replaced object by stable id', () => {
+  const d0 = Object.assign(makeDesktop(0), { id: 'desktop-0' });
+  const replacement = Object.assign(makeDesktop(0, 'Replacement'), { id: 'desktop-0' });
+  const window = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  const h = loadScript({ desktops: [replacement] });
+
+  h.context.setWindowDesktop(window, d0);
+
+  assert.equal(window.desktops[0], replacement);
+  assert.equal(h.workspace.desktops.includes(window.desktops[0]), true);
+});
+
+test('same-id desktop replacement is not treated as a user placement change', () => {
+  const stale = Object.assign(makeDesktop(0), { id: 'desktop-0' });
+  const replacement = Object.assign(makeDesktop(0, 'Replacement'), { id: 'desktop-0' });
+  const h = loadScript({ desktops: [replacement] });
+
+  assert.equal(h.context.sameWindowPlacement(
+    { onAllDesktops: false, desktops: [stale] },
+    { onAllDesktops: false, desktops: [replacement] },
+  ), true);
+});
+
+test('desktop creation uses the object confirmed in the workspace snapshot', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  let actualDesktop = null;
+  const h = loadScript({
+    windows: [browser],
+    desktops: [d0],
+    workspaceOverrides: {
+      createDesktop(position, name) {
+        actualDesktop = makeDesktop(position, name);
+        this.desktops.splice(position, 0, actualDesktop);
+        return makeDesktop(999, 'Bogus return value');
+      },
+    },
+  });
+
+  assert.equal(h.workspace.desktops[1], actualDesktop);
+  assert.equal(h.context.getTrailingSpareDesktop(h.workspace.desktops, h.workspace.windows), actualDesktop);
+});
+
+test('creation failure timers drain without retrying forever', () => {
+  const d0 = makeDesktop(0);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  let attempts = 0;
+  const h = loadScript({
+    windows: [browser],
+    desktops: [d0],
+    workspaceOverrides: {
+      createDesktop() {
+        attempts += 1;
+      },
+    },
+  });
+  const window = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+
+  let fired = 0;
+  while (h.QTimer.pending > 0 && fired < 10) {
+    h.QTimer.fireNext();
+    fired += 1;
+  }
+
+  assert.equal(h.QTimer.pending, 0);
+  assert.equal(fired <= 3, true);
+  assert.equal(attempts <= 3, true, 'startup, placement, and one reconciliation attempt');
+});
+
 test('keeps portal and file chooser windows on their source desktop', () => {
   const { context } = loadScript({ desktops: [] });
   const source = makeDesktop(0);
@@ -468,6 +632,135 @@ test('does not change focus or desktops when removal is unavailable', () => {
   assert.equal(h.workspace.currentDesktop, d1);
   assert.equal(h.workspace.activeWindow, occupied);
   assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+});
+
+test('one thrown removal does not stop later empty removals', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, d1, d2, d3] });
+  const originalRemove = h.workspace.removeDesktop.bind(h.workspace);
+  h.workspace.removeDesktop = (desktop) => {
+    if (desktop === d1) throw new Error('busy');
+    originalRemove(desktop);
+  };
+
+  h.context.reconcileTrailingSpareDesktops(false);
+
+  assert.equal(h.workspace.desktops.includes(d1), true);
+  assert.equal(h.workspace.desktops.includes(d2), false);
+  assert.equal(h.workspace.desktops.includes(d3), true);
+  assert.match(h.printed.join('\n'), /failed to remove virtual desktop/);
+});
+
+test('one no-op removal does not stop later empty removals', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, d1, d2, d3] });
+  const originalRemove = h.workspace.removeDesktop.bind(h.workspace);
+  h.workspace.removeDesktop = (desktop) => {
+    if (desktop === d1) return { removed: true };
+    return originalRemove(desktop);
+  };
+
+  h.context.reconcileTrailingSpareDesktops(false);
+
+  assert.equal(h.workspace.desktops.includes(d1), true);
+  assert.equal(h.workspace.desktops.includes(d2), false);
+  assert.equal(h.workspace.desktops.includes(d3), true);
+  assert.match(h.printed.join('\n'), /failed to remove virtual desktop/);
+});
+
+test('a replaced removal target is resolved by stable id before removal', () => {
+  const d0 = Object.assign(makeDesktop(0), { id: 'desktop-0' });
+  const stale = Object.assign(makeDesktop(1), { id: 'desktop-1' });
+  const replacement = Object.assign(makeDesktop(1, 'Replacement'), { id: 'desktop-1' });
+  const d2 = Object.assign(makeDesktop(2), { id: 'desktop-2' });
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, replacement, d2] });
+
+  h.context.removeDesktopIfStillEmpty(stale);
+
+  assert.equal(h.workspace.desktops.includes(replacement), false);
+  assert.equal(h.workspace.desktops.includes(d2), true);
+});
+
+test('failed temporary removal retains ownership for a later retry', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, d1] });
+  h.context.reservationCreatedDesktops.add(d1);
+  h.workspace.removeDesktop = () => {};
+
+  assert.equal(h.context.removeTemporaryReservationDesktop(d1), false);
+  assert.equal(h.context.reservationCreatedDesktops.has(d1), true);
+  assert.equal(h.workspace.desktops.includes(d1), true);
+});
+
+test('temporary ownership follows same-id replacement objects until occupied', () => {
+  const d0 = Object.assign(makeDesktop(0), { id: 'desktop-0' });
+  const stale = Object.assign(makeDesktop(1), { id: 'desktop-1' });
+  const replacement = Object.assign(makeDesktop(1, 'Replacement'), { id: 'desktop-1' });
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const occupant = makeWindow({ caption: 'Terminal', desktops: [replacement] });
+  const h = loadScript({ windows: [browser, occupant], desktops: [d0, replacement] });
+  h.context.reservationCreatedDesktops.add(stale);
+
+  h.context.promoteTemporaryDesktopsOccupiedBy(occupant);
+
+  assert.equal(h.context.reservationCreatedDesktops.size, 0);
+});
+
+test('a failed active-desktop removal does not cause focus jitter and can be retried', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({ windows: [browser], desktops: [d0, d1, d2] });
+  h.workspace.currentDesktop = d1;
+  h.workspace.activeWindow = null;
+  const originalRemove = h.workspace.removeDesktop.bind(h.workspace);
+  h.workspace.removeDesktop = (desktop) => {
+    if (desktop !== d1) originalRemove(desktop);
+  };
+
+  h.context.reconcileTrailingSpareDesktops(false);
+
+  assert.equal(h.workspace.currentDesktop, d1);
+  assert.equal(h.workspace.activeWindow, null);
+  assert.equal(h.workspace.desktops.includes(d1), true);
+
+  h.workspace.removeDesktop = originalRemove;
+  h.context.reconcileTrailingSpareDesktops(false);
+  assert.equal(h.workspace.desktops.includes(d1), false);
+  assert.equal(h.workspace.currentDesktop, d0);
+});
+
+test('closing a settling window still drains state when desktop operations are unavailable', () => {
+  const d0 = makeDesktop(0);
+  const h = loadScript({
+    desktops: [d0],
+    workspaceOverrides: { createDesktop: undefined, removeDesktop: undefined },
+  });
+  const window = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  assert.equal(h.context.placementStates.has(window), true);
+
+  h.unloadWindow(window);
+  window.closed.fire();
+  h.QTimer.fireAll();
+
+  assert.equal(h.context.placementStates.has(window), false);
+  assert.equal(h.context.reservedDesktopByWindow.has(window), false);
+  assert.equal(h.QTimer.pending, 0);
+  assert.equal(window.captionChanged.handlerCount, 0);
 });
 
 test('closing the final normal window retains the current desktop as the sole spare', () => {
@@ -1098,6 +1391,115 @@ test('an initial source-title decision that becomes spread uses its captured ini
   assert.equal(window.desktops[0], d1);
   assert.notEqual(window.desktops[0], laterSpare);
   assert.equal(h.context.placementStates.has(window), false);
+});
+
+test('a captured target replaced with the same id uses the current workspace object', () => {
+  const d0 = Object.assign(makeDesktop(0), { id: 'desktop-0' });
+  const d1 = Object.assign(makeDesktop(1), { id: 'desktop-1' });
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1] });
+  const window = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  const replacement = Object.assign(makeDesktop(1, 'Replacement'), { id: 'desktop-1' });
+  h.workspace.desktops[1] = replacement;
+
+  window.caption = 'Document';
+  window.captionChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+
+  assert.equal(window.desktops[0], replacement);
+  assert.equal(h.workspace.desktops.includes(window.desktops[0]), true);
+});
+
+test('a removed captured spread target falls back to the current trailing spare', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1] });
+  const window = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  const currentSpare = h.workspace.desktops[2];
+  h.workspace.removeDesktop(d1);
+
+  window.caption = 'Document';
+  window.captionChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+
+  assert.equal(window.desktops[0], currentSpare);
+  assert.equal(h.workspace.desktops.includes(window.desktops[0]), true);
+});
+
+test('a removed late source-rule target preserves the current valid placement', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({
+    windows: [existing],
+    desktops: [d0, d1],
+    config: { SourceDesktopApplications: 'spectacle' },
+  });
+  const window = makeWindow({ caption: 'Screenshot', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  h.workspace.removeDesktop(d0);
+
+  window.resourceClass = 'spectacle';
+  window.windowClassChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+
+  assert.equal(window.desktops[0], d1);
+  assert.equal(h.workspace.desktops.includes(window.desktops[0]), true);
+});
+
+test('a removed late same-group target preserves the current valid placement', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const groupMember = makeWindow({ caption: 'WeChat', resourceClass: 'wechat', desktops: [d1] });
+  const h = loadScript({
+    windows: [groupMember],
+    desktops: [d0, d1, d2],
+    config: { SameDesktopWindowGroups: 'wechat, *viewer*' },
+  });
+  const window = makeWindow({ caption: 'Unknown', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  assert.equal(window.desktops[0], d2);
+  h.workspace.removeDesktop(d1);
+
+  window.caption = 'Viewer';
+  window.captionChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+
+  assert.equal(window.desktops[0], d2);
+  assert.equal(h.workspace.desktops.includes(window.desktops[0]), true);
+});
+
+test('late correction falls back safely when both its target and current placement disappeared', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({
+    windows: [existing],
+    desktops: [d0, d1, d2],
+    config: { SourceDesktopApplications: 'spectacle' },
+  });
+  const window = makeWindow({ caption: 'Screenshot', desktops: [d0] });
+  h.loadWindow(window);
+  h.workspace.windowAdded.fire(window);
+  const remainingSpare = h.workspace.desktops[3];
+  h.workspace.removeDesktop(d0);
+  h.workspace.removeDesktop(d2);
+
+  window.resourceClass = 'spectacle';
+  window.windowClassChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+
+  assert.equal(window.desktops[0], remainingSpare);
+  assert.equal(h.workspace.desktops.includes(window.desktops[0]), true);
 });
 
 test('moving a settling window to all desktops cancels late correction', () => {

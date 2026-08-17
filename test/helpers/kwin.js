@@ -137,7 +137,7 @@ export function ruleWindow(overrides = {}) {
   };
 }
 
-export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
+export function loadScript({ config = {}, windows = [], desktops = [], workspaceOverrides = {} } = {}) {
   const desktopList = listLike(desktops);
   const currentDesktop = desktops[0] ?? null;
   const workspace = {
@@ -160,6 +160,7 @@ export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
     windowAdded: makeSignal(),
     windowRemoved: makeSignal(),
     windowActivated: makeSignal(),
+    ...workspaceOverrides,
   };
 
   const timers = [];
