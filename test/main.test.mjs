@@ -336,8 +336,7 @@ test('disabled cleanup keeps desktops after an added-window event', () => {
   h.workspace.windowAdded.fire(internalWindow);
   h.QTimer.fireAll();
 
-  assert.equal(h.workspace.desktops.length, 3);
-  assert.deepEqual([...h.workspace.desktops].slice(0, 2), [d0, d1]);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
 });
 
 test('disabled cleanup keeps desktops after a moved-window event', () => {
@@ -1089,6 +1088,118 @@ test('concurrent source windows reserve distinct captured spread targets', () =>
   assert.equal(second.desktops[0], d2);
   assert.equal(h.context.reservedDesktopByWindow.has(first), false);
   assert.equal(h.context.reservedDesktopByWindow.has(second), false);
+});
+
+test('temporary reservation desktops do not accumulate when cleanup is disabled', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({
+    windows: [existing],
+    desktops: [d0, d1],
+    config: { RemoveEmptyVirtualDesktops: false },
+  });
+  h.workspace.currentDesktop = d0;
+
+  [
+    { caption: 'Open File' },
+    { caption: 'Internal', normalWindow: false },
+    { caption: 'Save File' },
+  ].forEach((overrides) => {
+    const window = makeWindow({ desktops: [d0], ...overrides });
+    h.loadWindow(window);
+    h.workspace.windowAdded.fire(window);
+    assert.equal(h.workspace.desktops.length, 3);
+    h.unloadWindow(window);
+    window.closed.fire();
+    assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+  });
+});
+
+test('reclaims concurrent reservation desktops after deadline and close', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({
+    windows: [existing],
+    desktops: [d0, d1],
+    config: { RemoveEmptyVirtualDesktops: false },
+  });
+  const first = makeWindow({ caption: 'Open File', desktops: [d0] });
+  const second = makeWindow({ caption: 'Save File', desktops: [d0] });
+  h.loadWindow(first);
+  h.workspace.windowAdded.fire(first);
+  h.loadWindow(second);
+  h.workspace.windowAdded.fire(second);
+  assert.equal(h.workspace.desktops.length, 4);
+
+  assert.equal(h.QTimer.fireInterval(1000), true);
+  assert.equal(h.workspace.desktops.length, 4);
+  h.unloadWindow(second);
+  second.closed.fire();
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+  assert.equal(h.context.reservationCreatedDesktops.size, 0);
+});
+
+test('a temporary reservation target becomes permanent when late spread adopts it', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({
+    windows: [existing],
+    desktops: [d0, d1],
+    config: { RemoveEmptyVirtualDesktops: false },
+  });
+  const first = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(first);
+  h.workspace.windowAdded.fire(first);
+  const d2 = h.workspace.desktops[2];
+  const second = makeWindow({ caption: 'Save File', desktops: [d0] });
+  h.loadWindow(second);
+  h.workspace.windowAdded.fire(second);
+  const d3 = h.workspace.desktops[3];
+  assert.equal(h.context.reservationCreatedDesktops.has(d2), true);
+
+  second.caption = 'Document';
+  second.captionChanged.fire();
+  assert.equal(h.QTimer.fireInterval(50), true);
+  assert.equal(second.desktops[0], d2);
+  assert.equal(h.context.reservationCreatedDesktops.has(d2), false);
+  h.unloadWindow(first);
+  first.closed.fire();
+
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d2, d3]);
+  assert.equal(h.context.reservationCreatedDesktops.has(d3), true);
+
+  h.unloadWindow(second);
+  second.closed.fire();
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d2]);
+  assert.equal(h.context.reservationCreatedDesktops.has(d2), false);
+});
+
+test('a user-occupied temporary reservation desktop is never reclaimed', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const userWindow = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({
+    windows: [userWindow],
+    desktops: [d0, d1],
+    config: { RemoveEmptyVirtualDesktops: false },
+  });
+  const first = makeWindow({ caption: 'Open File', desktops: [d0] });
+  h.loadWindow(first);
+  h.workspace.windowAdded.fire(first);
+  const d2 = h.workspace.desktops[2];
+  assert.equal(h.context.reservationCreatedDesktops.has(d2), true);
+
+  userWindow.desktops = [d2];
+  assert.equal(h.context.reservationCreatedDesktops.has(d2), false);
+  h.unloadWindow(first);
+  first.closed.fire();
+
+  assert.equal(h.workspace.desktops.includes(d2), true);
+  assert.equal(userWindow.desktops[0], d2);
 });
 
 test('a decision change without an assignment keeps settling for a later group correction', () => {

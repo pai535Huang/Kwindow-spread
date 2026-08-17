@@ -34,6 +34,7 @@ var lastDesktopByWindow = new Map();
 var connectedWindows = new Set();
 var placementStates = new Map();
 var reservedDesktopByWindow = new Map();
+var reservationCreatedDesktops = new Set();
 var config = loadConfig();
 
 function loadConfig() {
@@ -294,7 +295,73 @@ function ensureTrailingSpareDesktop() {
   if (spare)
     return spare;
 
-  return createDesktopAt(desktops.length);
+  var previousTail = desktops.length > 0 ? desktops[desktops.length - 1] : null;
+  var createdForReservation = previousTail && isDesktopReserved(previousTail) &&
+    !desktopHasNormalWindow(previousTail, windows, null);
+  var created = createDesktopAt(desktops.length);
+  if (created && createdForReservation)
+    reservationCreatedDesktops.add(created);
+  return created;
+}
+
+function promoteTemporaryDesktopsOccupiedBy(window) {
+  if (!shouldTreatAsNormalWindow(toRuleWindow(window)))
+    return;
+
+  getWindowDesktops(window).forEach(function (desktop) {
+    reservationCreatedDesktops.delete(desktop);
+  });
+}
+
+function reclaimTemporaryReservationDesktops() {
+  getAllWindows().forEach(promoteTemporaryDesktopsOccupiedBy);
+
+  var removedDesktop = true;
+  while (removedDesktop) {
+    removedDesktop = false;
+    var desktops = Array.prototype.slice.call(getDesktops());
+    for (var index = desktops.length - 1; index >= 0; index--) {
+      var desktop = desktops[index];
+      if (!reservationCreatedDesktops.has(desktop))
+        continue;
+      if (isDesktopReserved(desktop))
+        continue;
+
+      var windows = getAllWindows().map(toRuleWindow);
+      if (desktopHasNormalWindow(desktop, windows, null)) {
+        reservationCreatedDesktops.delete(desktop);
+        continue;
+      }
+
+      var remainingDesktops = desktops.filter(function (otherDesktop) {
+        return otherDesktop !== desktop;
+      });
+      if (remainingDesktops.length === 0)
+        continue;
+      var remainingTail = remainingDesktops[remainingDesktops.length - 1];
+      if (desktopHasNormalWindow(remainingTail, windows, null) || isDesktopReserved(remainingTail))
+        continue;
+
+      if (removeTemporaryReservationDesktop(desktop)) {
+        reservationCreatedDesktops.delete(desktop);
+        removedDesktop = true;
+        break;
+      }
+    }
+  }
+}
+
+function removeTemporaryReservationDesktop(desktop) {
+  if (!desktop || typeof workspace.removeDesktop !== 'function')
+    return false;
+
+  try {
+    workspace.removeDesktop(desktop);
+  } catch (error) {
+    print('Kwindow-spread: failed to remove temporary reservation desktop: ' + error);
+    return false;
+  }
+  return getDesktops().indexOf(desktop) < 0;
 }
 
 function placeWindowImmediately(window, context) {
@@ -402,6 +469,7 @@ function finishIdentitySettling(window) {
   });
   reservedDesktopByWindow.delete(window);
   placementStates.delete(window);
+  reclaimTemporaryReservationDesktops();
 }
 
 function recheckWindowIdentity(window, atDeadline) {
@@ -522,6 +590,7 @@ function onWindowAdded(window) {
       : getPreviousActivationWindow(window),
   };
   trackWindow(window);
+  promoteTemporaryDesktopsOccupiedBy(window);
   var decision = placeWindowImmediately(window, context);
   if (!beginIdentitySettling(window, context, decision))
     scheduleDesktopReconciliation(false);
@@ -537,6 +606,7 @@ function onWindowRemoved(window) {
   finishIdentitySettling(window);
   connectedWindows.delete(window);
   lastDesktopByWindow.delete(window);
+  reclaimTemporaryReservationDesktops();
   scheduleDesktopReconciliation(restorePreviousFocus);
 }
 
@@ -549,6 +619,8 @@ function onWindowDesktopChanged(window) {
     finishIdentitySettling(window);
 
   lastDesktopByWindow.set(window, getWindowDesktop(window));
+  promoteTemporaryDesktopsOccupiedBy(window);
+  reclaimTemporaryReservationDesktops();
   scheduleDesktopReconciliation(false);
 }
 
