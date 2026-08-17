@@ -5,7 +5,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "node --test"
+    "test": "node --test && npm run check:repository",
+    "check:repository": "git ls-files -z | node scripts/check-repository-policy.mjs"
   },
   "license": "MIT"
 }
