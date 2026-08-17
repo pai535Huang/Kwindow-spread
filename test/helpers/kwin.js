@@ -17,8 +17,16 @@ export function makeSignal() {
       handlers.push(handler);
       return this;
     },
+    disconnect(handler) {
+      const index = handlers.indexOf(handler);
+      if (index >= 0) handlers.splice(index, 1);
+      return this;
+    },
     fire(...args) {
       for (const handler of handlers.slice()) handler(...args);
+    },
+    get handlerCount() {
+      return handlers.length;
     },
   };
 }
@@ -80,15 +88,18 @@ export function makeWindow(overrides = {}) {
     transientFor: null,
     dialog: false,
     modal: false,
-    role: '',
-    title: '',
+    windowRole: '',
+    caption: '',
     resourceClass: '',
     resourceName: '',
-    appId: '',
     desktopFileName: '',
     ...overrides,
     desktopsChanged: overrides.desktopsChanged ?? makeSignal(),
-    desktopChanged: overrides.desktopChanged ?? makeSignal(),
+    captionChanged: overrides.captionChanged ?? makeSignal(),
+    desktopFileNameChanged: overrides.desktopFileNameChanged ?? makeSignal(),
+    windowClassChanged: overrides.windowClassChanged ?? makeSignal(),
+    windowRoleChanged: overrides.windowRoleChanged ?? makeSignal(),
+    transientChanged: overrides.transientChanged ?? makeSignal(),
     closed: overrides.closed ?? makeSignal(),
   };
 
@@ -132,7 +143,6 @@ export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
   const workspace = {
     desktops: desktopList,
     currentDesktop,
-    activeDesktop: currentDesktop,
     activeWindow: null,
     windows,
     windowList() {
@@ -150,9 +160,6 @@ export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
     windowAdded: makeSignal(),
     windowRemoved: makeSignal(),
     windowActivated: makeSignal(),
-    clientAdded: makeSignal(),
-    clientRemoved: makeSignal(),
-    clientActivated: makeSignal(),
   };
 
   const timers = [];

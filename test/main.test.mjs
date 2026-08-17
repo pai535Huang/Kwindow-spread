@@ -25,6 +25,24 @@ test('exposes only the new editable source-desktop application setting', () => {
   });
 });
 
+test('exposes no optional desktop-creation setting', () => {
+  assert.equal(configSchemaSource.includes('name="CreateVirtualDesktops"'), false);
+  assert.equal(configUiSource.includes('name="kcfg_CreateVirtualDesktops"'), false);
+});
+
+test('models disconnectable Plasma 6 identity signals', () => {
+  const window = makeWindow();
+  let calls = 0;
+  const handler = () => { calls += 1; };
+  window.windowClassChanged.connect(handler);
+  window.windowClassChanged.fire();
+  window.windowClassChanged.disconnect(handler);
+  window.windowClassChanged.fire();
+  assert.equal(calls, 1);
+  assert.equal(window.windowClassChanged.handlerCount, 0);
+  assert.equal(window.desktopChanged, undefined);
+});
+
 test('leaves the first normal window on the source desktop', () => {
   const { context } = loadScript({ desktops: [] });
   const source = makeDesktop(0);
@@ -153,7 +171,7 @@ test('continues delayed placement when requesting a script config refresh throws
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
-  const existing = makeWindow({ title: 'Browser', desktops: [d1] });
+  const existing = makeWindow({ caption: 'Browser', desktops: [d1] });
   const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = existing;
@@ -161,7 +179,7 @@ test('continues delayed placement when requesting a script config refresh throws
     throw new Error('D-Bus unavailable');
   };
 
-  const fresh = makeWindow({ title: 'Terminal', desktops: [d0] });
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
@@ -179,8 +197,8 @@ test('removes every empty desktop and activates the nearest occupied desktop', (
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
   const d3 = makeDesktop(3);
-  const browser = makeWindow({ title: 'Browser', desktops: [d1] });
-  const chat = makeWindow({ title: 'Chat', desktops: [d3] });
+  const browser = makeWindow({ caption: 'Browser', desktops: [d1] });
+  const chat = makeWindow({ caption: 'Chat', desktops: [d3] });
   const h = loadScript({ windows: [browser, chat], desktops: [d0, d1, d2, d3] });
   h.workspace.currentDesktop = d2;
 
@@ -194,7 +212,7 @@ test('keeps every desktop assigned to a multi-desktop window', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
-  const window = makeWindow({ title: 'Browser', desktops: [d0, d2] });
+  const window = makeWindow({ caption: 'Browser', desktops: [d0, d2] });
   const h = loadScript({ windows: [window], desktops: [d0, d1, d2] });
   h.workspace.currentDesktop = d0;
 
@@ -203,24 +221,12 @@ test('keeps every desktop assigned to a multi-desktop window', () => {
   assert.deepEqual([...h.workspace.desktops], [d0, d2]);
 });
 
-test('keeps a legacy desktop when the desktops list is empty', () => {
-  const d0 = makeDesktop(0);
-  const d1 = makeDesktop(1);
-  const window = makeWindow({ title: 'Browser', desktops: [], desktop: d1 });
-  const h = loadScript({ windows: [window], desktops: [d0, d1] });
-  h.workspace.currentDesktop = d0;
-
-  h.context.cleanupAllEmptyDesktops(false);
-
-  assert.deepEqual([...h.workspace.desktops], [d1]);
-});
-
 test('restores the previous focus before removing empty desktops', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
-  const previous = makeWindow({ title: 'Browser', desktops: [d0] });
-  const closing = makeWindow({ title: 'Editor', desktops: [d1] });
+  const previous = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const closing = makeWindow({ caption: 'Editor', desktops: [d1] });
   const h = loadScript({ windows: [previous, closing], desktops: [d0, d1, d2] });
   h.workspace.activeWindow = previous;
   h.workspace.windowActivated.fire(previous);
@@ -253,7 +259,7 @@ test('keeps the current desktop when no normal windows remain', () => {
 test('does not clean empty desktops when automatic removal is disabled', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const occupied = makeWindow({ title: 'Browser', desktops: [d0] });
+  const occupied = makeWindow({ caption: 'Browser', desktops: [d0] });
   const h = loadScript({
     windows: [occupied],
     desktops: [d0, d1],
@@ -268,7 +274,7 @@ test('does not clean empty desktops when automatic removal is disabled', () => {
 test('disabled cleanup keeps desktops after an added-window event', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const internalWindow = makeWindow({ normalWindow: false, title: 'Internal', desktops: [d0] });
+  const internalWindow = makeWindow({ normalWindow: false, caption: 'Internal', desktops: [d0] });
   const h = loadScript({
     desktops: [d0, d1],
     config: { RemoveEmptyVirtualDesktops: false },
@@ -284,7 +290,7 @@ test('disabled cleanup keeps desktops after an added-window event', () => {
 test('disabled cleanup keeps desktops after a moved-window event', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const moving = makeWindow({ title: 'Editor', desktops: [d0] });
+  const moving = makeWindow({ caption: 'Editor', desktops: [d0] });
   const h = loadScript({
     windows: [moving],
     desktops: [d0, d1],
@@ -300,7 +306,7 @@ test('disabled cleanup keeps desktops after a moved-window event', () => {
 test('disabled cleanup keeps desktops after a removed-window event', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const closing = makeWindow({ title: 'Editor', desktops: [d0] });
+  const closing = makeWindow({ caption: 'Editor', desktops: [d0] });
   const h = loadScript({
     windows: [closing],
     desktops: [d0, d1],
@@ -317,7 +323,7 @@ test('disabled cleanup keeps desktops after a removed-window event', () => {
 test('does not change focus or desktops when removal is unavailable', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const occupied = makeWindow({ title: 'Browser', desktops: [d0] });
+  const occupied = makeWindow({ caption: 'Browser', desktops: [d0] });
   const h = loadScript({ windows: [occupied], desktops: [d0, d1] });
   h.workspace.currentDesktop = d1;
   h.workspace.activeWindow = occupied;
@@ -334,12 +340,12 @@ test('moves a freshly added window after the QTimer delay', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
-  const existing = makeWindow({ title: 'Browser', desktops: [d1] });
+  const existing = makeWindow({ caption: 'Browser', desktops: [d1] });
   const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = existing;
 
-  const fresh = makeWindow({ title: 'Terminal', desktops: [d0] });
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
@@ -357,8 +363,8 @@ test('does not cascade desktop creation for windows added within the move delay'
   const h = loadScript({ windows: [], desktops: [d0] });
   h.workspace.currentDesktop = d0;
 
-  const a = makeWindow({ title: 'A', desktops: [d0] });
-  const b = makeWindow({ title: 'B', desktops: [d0] });
+  const a = makeWindow({ caption: 'A', desktops: [d0] });
+  const b = makeWindow({ caption: 'B', desktops: [d0] });
   h.loadWindow(a);
   h.workspace.windowAdded.fire(a);
   h.loadWindow(b);
@@ -499,12 +505,12 @@ test('groups a second window of the same app onto the first window desktop', () 
   });
   h.workspace.currentDesktop = d0;
 
-  const first = makeWindow({ title: 'WeChat', resourceClass: 'wechat', desktops: [d1] });
+  const first = makeWindow({ caption: 'WeChat', resourceClass: 'wechat', desktops: [d1] });
   h.loadWindow(first);
   h.workspace.windowAdded.fire(first);
   h.QTimer.fireAll();
 
-  const second = makeWindow({ title: 'WeChat', desktops: [d0] });
+  const second = makeWindow({ caption: 'WeChat', desktops: [d0] });
   h.loadWindow(second);
   h.workspace.windowAdded.fire(second);
   h.QTimer.fireAll();
@@ -517,12 +523,12 @@ test('groups a second window of the same app onto the first window desktop', () 
 test('creates a virtual desktop when the target desktop does not exist', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const existing = makeWindow({ title: 'Browser', desktops: [d1] });
+  const existing = makeWindow({ caption: 'Browser', desktops: [d1] });
   const h = loadScript({ windows: [existing], desktops: [d0, d1] });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = existing;
 
-  const fresh = makeWindow({ title: 'Editor', desktops: [d0] });
+  const fresh = makeWindow({ caption: 'Editor', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
   h.QTimer.fireAll();
@@ -535,8 +541,8 @@ test('keeps focus on the source window when configured', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
-  const focused = makeWindow({ title: 'Editor', desktops: [d0] });
-  const other = makeWindow({ title: 'Browser', desktops: [d1] });
+  const focused = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const other = makeWindow({ caption: 'Browser', desktops: [d1] });
   const h = loadScript({
     windows: [focused, other],
     desktops: [d0, d1, d2],
@@ -545,7 +551,7 @@ test('keeps focus on the source window when configured', () => {
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = focused;
 
-  const fresh = makeWindow({ title: 'Terminal', desktops: [d0] });
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
   h.QTimer.fireAll();
@@ -560,12 +566,12 @@ test('cancels the pending move when the window closes before the timer fires', (
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
-  const existing = makeWindow({ title: 'Browser', desktops: [d1] });
+  const existing = makeWindow({ caption: 'Browser', desktops: [d1] });
   const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = existing;
 
-  const fresh = makeWindow({ title: 'Terminal', desktops: [d0] });
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
   h.unloadWindow(fresh);
@@ -579,7 +585,7 @@ test('cancels the pending move when the window closes before the timer fires', (
 test('handles close signals only once even when both closed and windowRemoved fire', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const w = makeWindow({ title: 'App', desktops: [d0] });
+  const w = makeWindow({ caption: 'App', desktops: [d0] });
   const h = loadScript({ windows: [w], desktops: [d0, d1] });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = w;
@@ -596,7 +602,7 @@ test('handles close signals only once even when both closed and windowRemoved fi
 test('ignores late desktop-change signals from a removed window', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const closing = makeWindow({ title: 'Editor', desktops: [d0] });
+  const closing = makeWindow({ caption: 'Editor', desktops: [d0] });
   const h = loadScript({ windows: [closing], desktops: [d0, d1] });
 
   h.unloadWindow(closing);
@@ -604,7 +610,6 @@ test('ignores late desktop-change signals from a removed window', () => {
   h.QTimer.fireAll();
 
   closing.desktopsChanged.fire();
-  closing.desktopChanged.fire();
 
   assert.equal(h.QTimer.pending, 0);
   assert.equal(h.context.lastDesktopByWindow.has(closing), false);
@@ -615,11 +620,11 @@ test('cleans every empty desktop before placing a newly added window', () => {
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
   const d3 = makeDesktop(3);
-  const existing = makeWindow({ title: 'Browser', desktops: [d2] });
+  const existing = makeWindow({ caption: 'Browser', desktops: [d2] });
   const h = loadScript({ windows: [existing], desktops: [d0, d1, d2, d3] });
   h.workspace.currentDesktop = d0;
 
-  const fresh = makeWindow({ title: 'Terminal', desktops: [d0] });
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
@@ -635,14 +640,13 @@ test('coalesces desktop-change signals and cleans every empty desktop', () => {
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
   const d3 = makeDesktop(3);
-  const moving = makeWindow({ title: 'Editor', desktops: [d0] });
-  const occupied = makeWindow({ title: 'Browser', desktops: [d1] });
+  const moving = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const occupied = makeWindow({ caption: 'Browser', desktops: [d1] });
   const h = loadScript({ windows: [moving, occupied], desktops: [d0, d1, d2, d3] });
   h.workspace.currentDesktop = d1;
 
   moving.desktops = [d2];
   moving.desktopsChanged.fire();
-  moving.desktopChanged.fire();
 
   assert.equal(h.QTimer.pending, 1);
   h.QTimer.fireAll();
@@ -654,11 +658,11 @@ test('cleans the source desktop after script placement changes desktops', () => 
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
-  const existing = makeWindow({ title: 'Browser', desktops: [d1] });
+  const existing = makeWindow({ caption: 'Browser', desktops: [d1] });
   const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
   h.workspace.currentDesktop = d0;
 
-  const fresh = makeWindow({ title: 'Terminal', desktops: [d0] });
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
@@ -674,8 +678,8 @@ test('closing a window removes all empty desktops and restores previous focus', 
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
   const d3 = makeDesktop(3);
-  const browser = makeWindow({ title: 'Browser', desktops: [d0] });
-  const closing = makeWindow({ title: 'Editor', desktops: [d2] });
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const closing = makeWindow({ caption: 'Editor', desktops: [d2] });
   const h = loadScript({ windows: [browser, closing], desktops: [d0, d1, d2, d3] });
   h.workspace.windowActivated.fire(browser);
   h.workspace.windowActivated.fire(closing);
@@ -695,7 +699,7 @@ test('closing the final window retains its current desktop only', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const d2 = makeDesktop(2);
-  const closing = makeWindow({ title: 'Editor', desktops: [d1] });
+  const closing = makeWindow({ caption: 'Editor', desktops: [d1] });
   const h = loadScript({ windows: [closing], desktops: [d0, d1, d2] });
   h.workspace.currentDesktop = d1;
   h.workspace.activeWindow = closing;

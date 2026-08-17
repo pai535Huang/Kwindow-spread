@@ -13,16 +13,6 @@
      </property>
     </widget>
    </item>
-   <item>
-    <widget class="QCheckBox" name="kcfg_CreateVirtualDesktops">
-     <property name="text">
-      <string>Create a virtual desktop when the target desktop does not exist</string>
-     </property>
-     <property name="checked">
-      <bool>true</bool>
-     </property>
-    </widget>
-   </item>
     <item>
      <widget class="QCheckBox" name="kcfg_RemoveEmptyVirtualDesktops">
       <property name="text">

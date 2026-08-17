@@ -36,7 +36,6 @@ var config = loadConfig();
 function loadConfig() {
   return {
     keepCurrentFocus: readBoolConfig('KeepCurrentFocus', false),
-    createVirtualDesktops: readBoolConfig('CreateVirtualDesktops', true),
     removeEmptyVirtualDesktops: readBoolConfig('RemoveEmptyVirtualDesktops', true),
     rules: {
       sourceDesktopApplications: readStringListConfig('SourceDesktopApplications', []),
@@ -92,33 +91,12 @@ function trimString(value) {
   return String(value).trim();
 }
 
-function connectWorkspaceSignal(names, handler) {
-  for (var index = 0; index < names.length; index++) {
-    var signal = workspace[names[index]];
-    if (signal && typeof signal.connect === 'function') {
-      signal.connect(handler);
-      return true;
-    }
-  }
-
-  return false;
-}
-
 function getAllWindows() {
-  if (typeof workspace.windowList === 'function')
-    return workspace.windowList();
-
-  if (typeof workspace.clientList === 'function')
-    return workspace.clientList();
-
-  if (Array.isArray(workspace.windows))
-    return workspace.windows;
-
-  return [];
+  return workspace.windowList();
 }
 
 function getCurrentDesktop() {
-  return workspace.currentDesktop || workspace.activeDesktop || null;
+  return workspace.currentDesktop || null;
 }
 
 function getWindowDesktop(window) {
@@ -128,60 +106,30 @@ function getWindowDesktop(window) {
   if (window.desktops && typeof window.desktops.length === 'number' && window.desktops.length > 0)
     return window.desktops[0];
 
-  return window.desktop || lastDesktopByWindow.get(window) || null;
+  return lastDesktopByWindow.get(window) || null;
 }
 
 function getWindowDesktops(window) {
-  if (!window)
-    return null;
-
-  var desktops = [];
-  if (window.desktops && typeof window.desktops.length === 'number') {
-    for (var index = 0; index < window.desktops.length; index++)
-      desktops.push(window.desktops[index]);
-  }
-
-  if (desktops.length > 0)
-    return desktops;
-
-  var desktop = getWindowDesktop(window);
-  return desktop ? [desktop] : null;
+  return window && window.desktops ? Array.prototype.slice.call(window.desktops) : [];
 }
 
 function setWindowDesktop(window, desktop) {
   if (!window || !desktop)
     return;
 
-  var desktopsProperty = window.desktops && (Array.isArray(window.desktops)
-    || typeof window.desktops.length === 'number'
-    || Object.prototype.hasOwnProperty.call(window, 'desktops'));
-
-  if (desktopsProperty)
-    window.desktops = [desktop];
-  else
-    window.desktop = desktop;
-
+  window.desktops = [desktop];
   lastDesktopByWindow.set(window, desktop);
 }
 
 function getDesktops() {
-  if (workspace.desktops && typeof workspace.desktops.length === 'number')
-    return workspace.desktops;
-
-  if (typeof workspace.desktops === 'function')
-    return workspace.desktops();
-
-  return [];
+  return workspace.desktops;
 }
 
 function activateDesktop(desktop) {
   if (!desktop)
     return;
 
-  if (Object.prototype.hasOwnProperty.call(workspace, 'currentDesktop'))
-    workspace.currentDesktop = desktop;
-  else
-    workspace.activeDesktop = desktop;
+  workspace.currentDesktop = desktop;
 }
 
 function activateWindow(window) {
@@ -196,12 +144,11 @@ function activateWindow(window) {
 }
 
 function createDesktopAt(index) {
-  if (!config.createVirtualDesktops || typeof workspace.createDesktop !== 'function')
+  if (typeof workspace.createDesktop !== 'function')
     return null;
 
-  var name = 'Desktop ' + (index + 1);
   try {
-    workspace.createDesktop(index, name);
+    workspace.createDesktop(index, 'Desktop ' + (index + 1));
   } catch (error) {
     print('Kwindow-spread: failed to create virtual desktop: ' + error);
     return null;
@@ -322,7 +269,7 @@ function moveWindow(window, context) {
     }).map(toRuleWindow),
     sourceDesktop: context.desktop,
     rules: config.rules,
-    canCreateDesktop: config.createVirtualDesktops && typeof workspace.createDesktop === 'function',
+    canCreateDesktop: typeof workspace.createDesktop === 'function',
   });
 
   if (decision.kind === 'ignore')
@@ -454,12 +401,6 @@ function trackWindow(window) {
     });
   }
 
-  if (window.desktopChanged && typeof window.desktopChanged.connect === 'function') {
-    window.desktopChanged.connect(function () {
-      onWindowDesktopChanged(window);
-    });
-  }
-
   if (window.closed && typeof window.closed.connect === 'function')
     window.closed.connect(function () { onWindowRemoved(window); });
 }
@@ -473,11 +414,11 @@ function toRuleWindow(window) {
     onAllDesktops: boolProperty(window, 'onAllDesktops', false),
     transient: boolProperty(window, 'transient', false) || !!(window && window.transientFor),
     dialog: boolProperty(window, 'dialog', false) || boolProperty(window, 'modal', false),
-    role: stringProperty(window, ['windowRole', 'role', 'wmWindowRole']),
-    title: stringProperty(window, ['caption', 'title', 'windowTitle']),
-    resourceClass: stringProperty(window, ['resourceClass', 'wmClass']),
-    resourceName: stringProperty(window, ['resourceName', 'wmClassInstance']),
-    appId: stringProperty(window, ['desktopFileName', 'appId']),
+    role: stringProperty(window, ['windowRole']),
+    title: stringProperty(window, ['caption']),
+    resourceClass: stringProperty(window, ['resourceClass']),
+    resourceName: stringProperty(window, ['resourceName']),
+    appId: stringProperty(window, ['desktopFileName']),
     desktop: desktop,
     desktops: getWindowDesktops(window),
   };
@@ -765,9 +706,9 @@ function wildcardToRegex(pattern) {
   return '^' + escaped.replace(/\*/g, '.*').replace(/\?/g, '.') + '$';
 }
 
-connectWorkspaceSignal(['windowAdded', 'clientAdded'], onWindowAdded);
-connectWorkspaceSignal(['windowRemoved', 'clientRemoved'], onWindowRemoved);
-connectWorkspaceSignal(['windowActivated', 'clientActivated'], recordFocus);
+workspace.windowAdded.connect(onWindowAdded);
+workspace.windowRemoved.connect(onWindowRemoved);
+workspace.windowActivated.connect(recordFocus);
 
 getAllWindows().forEach(trackWindow);
 recordFocus(workspace.activeWindow || null);
