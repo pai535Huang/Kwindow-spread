@@ -175,7 +175,7 @@ test('filters out non-normal top-level windows', () => {
   assert.equal(context.shouldTreatAsNormalWindow(ruleWindow({ title: 'App' })), true);
 });
 
-test('refreshes script config without globally reconfiguring KWin for titlebar menu events', () => {
+test('window add and remove events do not trigger asynchronous D-Bus config refreshes', () => {
   const desktop = makeDesktop(0);
   const h = loadScript({ desktops: [desktop] });
   const titlebarMenu = makeWindow({ normalWindow: false, popupMenu: true, desktops: [desktop] });
@@ -185,32 +185,30 @@ test('refreshes script config without globally reconfiguring KWin for titlebar m
   h.unloadWindow(titlebarMenu);
   h.workspace.windowRemoved.fire(titlebarMenu);
 
-  assert.deepEqual(h.callDBusCalls, [
-    ['org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'start'],
-    ['org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'start'],
-  ]);
-  assert.equal(h.callDBusCalls.some((call) => call.includes('/KWin') || call.includes('reconfigure')), false);
+  assert.deepEqual(h.callDBusCalls, []);
 });
 
-test('continues immediate placement when requesting a script config refresh throws', () => {
+test('immediate placement uses config loaded at script startup', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
-  const d2 = makeDesktop(2);
-  const existing = makeWindow({ caption: 'Browser', desktops: [d1] });
-  const h = loadScript({ windows: [existing], desktops: [d0, d1, d2] });
+  const existing = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const h = loadScript({
+    windows: [existing],
+    desktops: [d0, d1],
+    config: { SourceDesktopApplications: 'spectacle' },
+  });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = existing;
-  h.context.callDBus = () => {
-    throw new Error('D-Bus unavailable');
-  };
 
-  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.config.SourceDesktopApplications = '';
+
+  const fresh = makeWindow({ caption: 'Capture', resourceClass: 'spectacle', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
 
-  assert.match(h.printed.at(-1), /failed to refresh script config: Error: D-Bus unavailable/);
-  assert.equal(h.workspace.desktops.length, 4);
-  assert.equal(fresh.desktops[0], d2);
+  assert.equal(fresh.desktops[0], d0);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1]);
+  assert.deepEqual([...h.context.config.rules.sourceDesktopApplications], ['spectacle']);
 });
 
 test('removes every empty desktop and activates the nearest occupied desktop', () => {
@@ -256,7 +254,7 @@ test('restores the previous focus before removing empty desktops', () => {
   h.workspace.activeWindow = closing;
   h.unloadWindow(closing);
 
-  assert.equal(h.context.focusMru.includes(closing), false);
+  assert.equal(h.context.normalFocusMru.includes(closing), false);
   h.context.cleanupAllEmptyDesktops(true);
 
   assert.equal(h.workspace.activeWindow, previous);
@@ -623,6 +621,40 @@ test('restores prior focus when KWin activates the new window before windowAdded
   assert.equal(h.workspace.currentDesktop, d0);
 });
 
+[
+  ['dialog', { dialog: true }],
+  ['transient', { transient: true }],
+  ['skip-taskbar', { skipTaskbar: true }],
+  ['non-normal client', { normalWindow: false }],
+].forEach(([kind, overrides]) => {
+  test(`restores a previously activated ${kind} after synchronous placement`, () => {
+    const d0 = makeDesktop(0);
+    const d1 = makeDesktop(1);
+    const d2 = makeDesktop(2);
+    const previous = makeWindow({ caption: 'Previous', desktops: [d0], ...overrides });
+    const existing = makeWindow({ caption: 'Browser', desktops: [d1] });
+    const h = loadScript({
+      windows: [previous, existing],
+      desktops: [d0, d1, d2],
+      config: { KeepCurrentFocus: true },
+    });
+    h.workspace.currentDesktop = d0;
+    h.workspace.activeWindow = previous;
+    h.workspace.windowActivated.fire(previous);
+
+    const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
+    h.loadWindow(fresh);
+    h.workspace.activeWindow = fresh;
+    h.workspace.windowActivated.fire(fresh);
+    h.workspace.windowAdded.fire(fresh);
+
+    assert.equal(fresh.desktops[0], d2);
+    assert.equal(h.workspace.activeWindow, previous);
+    assert.equal(h.workspace.currentDesktop, d0);
+    assert.equal(h.context.normalFocusMru.includes(previous), false);
+  });
+});
+
 test('handles close signals only once even when both closed and windowRemoved fire', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
@@ -630,11 +662,14 @@ test('handles close signals only once even when both closed and windowRemoved fi
   const h = loadScript({ windows: [w], desktops: [d0, d1] });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = w;
+  h.workspace.windowActivated.fire(w);
 
   h.unloadWindow(w);
-  h.workspace.windowRemoved.fire(w);
+  w.closed.fire();
   const afterFirst = h.QTimer.pending;
   assert.equal(afterFirst, 1);
+  assert.equal(h.context.activationMru.includes(w), false);
+  assert.equal(h.context.normalFocusMru.includes(w), false);
 
   h.workspace.windowRemoved.fire(w);
   assert.equal(h.QTimer.pending, afterFirst);

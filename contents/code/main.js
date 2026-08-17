@@ -26,7 +26,8 @@ var DEFAULT_RULES = {
   sameDesktopGroups: [],
 };
 
-var focusMru = [];
+var activationMru = [];
+var normalFocusMru = [];
 var lastDesktopByWindow = new Map();
 var connectedWindows = new Set();
 var config = loadConfig();
@@ -40,18 +41,6 @@ function loadConfig() {
       sameDesktopGroups: readStringListConfig('SameDesktopWindowGroups', []),
     },
   };
-}
-
-function refreshConfig() {
-  config = loadConfig();
-}
-
-function requestScriptConfigRefresh() {
-  try {
-    callDBus('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'start');
-  } catch (error) {
-    print('Kwindow-spread: failed to refresh script config: ' + error);
-  }
 }
 
 function readBoolConfig(name, fallback) {
@@ -166,26 +155,50 @@ function removeDesktop(desktop) {
   }
 }
 
-function recordFocus(window) {
+function recordActivation(window) {
+  if (!window || getAllWindows().indexOf(window) < 0)
+    return;
+
+  removeFromActivationMru(window);
+  activationMru.unshift(window);
+  if (activationMru.length > 16)
+    activationMru.length = 16;
+
   if (!shouldTreatAsNormalWindow(toRuleWindow(window)))
     return;
 
-  removeFromFocusMru(window);
-  focusMru.unshift(window);
-  if (focusMru.length > 16)
-    focusMru.length = 16;
+  removeFromNormalFocusMru(window);
+  normalFocusMru.unshift(window);
+  if (normalFocusMru.length > 16)
+    normalFocusMru.length = 16;
 }
 
-function removeFromFocusMru(window) {
-  var index = focusMru.indexOf(window);
+function removeFromActivationMru(window) {
+  var index = activationMru.indexOf(window);
   if (index >= 0)
-    focusMru.splice(index, 1);
+    activationMru.splice(index, 1);
 }
 
-function getPreviousFocusWindow(ignoredWindow) {
-  for (var index = 0; index < focusMru.length; index++) {
-    var window = focusMru[index];
+function removeFromNormalFocusMru(window) {
+  var index = normalFocusMru.indexOf(window);
+  if (index >= 0)
+    normalFocusMru.splice(index, 1);
+}
+
+function getPreviousActivationWindow(ignoredWindow) {
+  for (var index = 0; index < activationMru.length; index++) {
+    var window = activationMru[index];
     if (window && window !== ignoredWindow && getAllWindows().indexOf(window) >= 0)
+      return window;
+  }
+
+  return null;
+}
+
+function getPreviousNormalFocusWindow() {
+  for (var index = 0; index < normalFocusMru.length; index++) {
+    var window = normalFocusMru[index];
+    if (window && getAllWindows().indexOf(window) >= 0)
       return window;
   }
 
@@ -238,7 +251,6 @@ function ensureTrailingSpareDesktop() {
 }
 
 function placeWindowImmediately(window, context) {
-  refreshConfig();
   var normalizedWindow = toRuleWindow(window);
   var otherWindows = getAllWindows().filter(function (otherWindow) {
     return otherWindow !== window;
@@ -273,7 +285,6 @@ function placeWindowImmediately(window, context) {
 }
 
 function cleanupAllEmptyDesktops(restorePreviousFocus) {
-  refreshConfig();
   if (!config.removeEmptyVirtualDesktops)
     return;
 
@@ -294,7 +305,7 @@ function cleanupAllEmptyDesktops(restorePreviousFocus) {
     var currentDesktop = getCurrentDesktop();
     retainedDesktop = desktops.indexOf(currentDesktop) >= 0 ? currentDesktop : desktops[0];
   } else {
-    var previousWindow = restorePreviousFocus ? getPreviousFocusWindow() : null;
+    var previousWindow = restorePreviousFocus ? getPreviousNormalFocusWindow() : null;
     if (previousWindow)
       activateWindow(previousWindow);
 
@@ -342,9 +353,8 @@ function onWindowAdded(window) {
     desktop: getCurrentDesktop(),
     focusWindow: activeWindow && activeWindow !== window
       ? activeWindow
-      : getPreviousFocusWindow(window),
+      : getPreviousActivationWindow(window),
   };
-  requestScriptConfigRefresh();
   trackWindow(window);
   placeWindowImmediately(window, context);
   scheduleDesktopReconciliation(false);
@@ -354,11 +364,11 @@ function onWindowRemoved(window) {
   if (!window || !connectedWindows.has(window))
     return;
 
-  var restorePreviousFocus = focusMru[0] === window || workspace.activeWindow === window;
-  removeFromFocusMru(window);
+  var restorePreviousFocus = normalFocusMru[0] === window || workspace.activeWindow === window;
+  removeFromActivationMru(window);
+  removeFromNormalFocusMru(window);
   connectedWindows.delete(window);
   lastDesktopByWindow.delete(window);
-  requestScriptConfigRefresh();
   scheduleDesktopReconciliation(restorePreviousFocus);
 }
 
@@ -692,8 +702,8 @@ function wildcardToRegex(pattern) {
 
 workspace.windowAdded.connect(onWindowAdded);
 workspace.windowRemoved.connect(onWindowRemoved);
-workspace.windowActivated.connect(recordFocus);
+workspace.windowActivated.connect(recordActivation);
 
 getAllWindows().forEach(trackWindow);
-recordFocus(workspace.activeWindow || null);
+recordActivation(workspace.activeWindow || null);
 ensureTrailingSpareDesktop();
