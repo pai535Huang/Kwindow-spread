@@ -55,7 +55,7 @@ org.kde.spectacle
 
 Patterns match the app ID, resource class, and resource name, including XWayland `WM_CLASS`. Window titles are not matched.
 
-Configuration changes take effect for subsequent window and desktop events after selecting **Apply**. No script reload is required.
+Configuration changes take effect immediately.
 
 ## Update and uninstall
 
@@ -65,7 +65,7 @@ Update the installed package:
 kpackagetool6 --type KWin/Script --upgrade .
 ```
 
-After updating, reload the script: disable it and select **Apply**, then enable it and select **Apply** again.
+After updating, reload the script.
 
 To uninstall, disable the script first, then run:
 
