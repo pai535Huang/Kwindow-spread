@@ -41,7 +41,7 @@ test('documents Plasma 6 Wayland and the trailing spare desktop', () => {
   assert.match(readmeSource, /trailing empty virtual desktop/i);
   assert.match(readmeSource, /always maintains one trailing empty virtual desktop/i);
   assert.doesNotMatch(readmeSource, /By default, the script keeps a trailing empty/i);
-  assert.match(readmeSource, /without\s+(?:a\s+)?fixed 500 ms delay/i);
+  assert.match(readmeSource, /Moves ordinary new application windows there, then creates the next empty desktop/i);
   assert.match(readmeSource, /select \*\*Apply\*\*/i);
   assert.match(configUiSource, /Remove extra empty virtual desktops while keeping one trailing spare/);
   assert.equal(
@@ -62,9 +62,13 @@ test('keeps Plasma 6 package metadata and release commands consistent', () => {
   assert.match(readmeSource, /kpackagetool6 --type KWin\/Script --remove kwindow-spread/);
 });
 
-test('documents a two-apply script reload after updates and configuration changes', () => {
-  assert.ok((readmeSource.match(/disable[\s\S]{0,100}\*\*Apply\*\*/gi) || []).length >= 2);
-  assert.ok((readmeSource.match(/enable[\s\S]{0,100}\*\*Apply\*\*/gi) || []).length >= 2);
+test('documents live configuration updates and reloads only after package updates', () => {
+  assert.match(
+    readmeSource,
+    /Configuration changes take effect for subsequent window and desktop events after selecting \*\*Apply\*\*\. No script reload is required\./,
+  );
+  assert.equal((readmeSource.match(/disable[\s\S]{0,100}\*\*Apply\*\*/gi) || []).length, 1);
+  assert.equal((readmeSource.match(/enable[\s\S]{0,100}\*\*Apply\*\*/gi) || []).length, 1);
 });
 
 test('release files do not advertise obsolete desktop creation or legacy support', () => {

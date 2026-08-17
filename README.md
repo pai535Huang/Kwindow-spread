@@ -1,11 +1,11 @@
 # Kwindow-spread
 
-Kwindow-spread is a KWin script that automatically places new application windows on separate virtual desktops while keeping one empty desktop ready at the end. It supports KDE Plasma 6 on Wayland, including native Wayland and XWayland applications. Plasma 5 and X11 sessions are not supported.
+Kwindow-spread is a KWin script that automatically places new application windows on separate virtual desktops. Supports KDE Plasma 6 on Wayland.
 
 ## How it works
 
 - Always maintains one trailing empty virtual desktop at the end of the desktop list.
-- Moves ordinary new application windows there without a fixed 500 ms delay, then creates the next empty desktop.
+- Moves ordinary new application windows there, then creates the next empty desktop.
 - Leaves dialogs, transient windows, file pickers, and portal windows on their original desktop.
 - Applies placement rules in this order: auxiliary windows, source-desktop applications, same-desktop groups, then ordinary spreading.
 - Can preserve the current focus and remove extra empty desktops without removing the trailing spare.
@@ -55,7 +55,7 @@ org.kde.spectacle
 
 Patterns match the app ID, resource class, and resource name, including XWayland `WM_CLASS`. Window titles are not matched.
 
-Configuration changes take effect after the script reloads. Disable the script and select **Apply**, then enable it and select **Apply** again.
+Configuration changes take effect for subsequent window and desktop events after selecting **Apply**. No script reload is required.
 
 ## Update and uninstall
 
