@@ -168,6 +168,8 @@ export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
       _callbacks: [],
       singleShot: false,
       interval: 0,
+      destroyed: false,
+      deleteLaterCalls: 0,
       timeout: {
         connect(callback) {
           timer._callbacks.push(callback);
@@ -180,6 +182,10 @@ export function loadScript({ config = {}, windows = [], desktops = [] } = {}) {
       stop() {
         const index = timers.indexOf(timer);
         if (index >= 0) timers.splice(index, 1);
+      },
+      deleteLater() {
+        timer.deleteLaterCalls += 1;
+        timer.destroyed = true;
       },
       _fire() {
         for (const callback of timer._callbacks.slice()) callback();
