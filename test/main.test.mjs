@@ -76,6 +76,21 @@ test('moves a new normal window to the desktop after the last non-empty desktop'
   assert.equal(decision.reason, 'next-after-last-non-empty');
 });
 
+test('selects an existing empty final desktop as the spare', () => {
+  const { context } = loadScript({ desktops: [] });
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const browser = ruleWindow({ desktop: d0, desktops: [d0], title: 'Browser' });
+  assert.equal(context.getTrailingSpareDesktop([d0, d1], [browser]), d1);
+});
+
+test('requests a spare when the final desktop is occupied', () => {
+  const { context } = loadScript({ desktops: [] });
+  const d0 = makeDesktop(0);
+  const browser = ruleWindow({ desktop: d0, desktops: [d0], title: 'Browser' });
+  assert.equal(context.getTrailingSpareDesktop([d0], [browser]), null);
+});
+
 test('requests a new desktop when the last non-empty desktop is the final desktop', () => {
   const { context } = loadScript({ desktops: [] });
   const desktops = [makeDesktop(0), makeDesktop(1)];

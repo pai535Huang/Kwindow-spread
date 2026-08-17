@@ -624,6 +624,13 @@ function desktopHasNormalWindow(desktop, windows, ignoredWindow) {
   });
 }
 
+function getTrailingSpareDesktop(desktops, windows) {
+  if (!desktops || desktops.length === 0)
+    return null;
+  var candidate = desktops[desktops.length - 1];
+  return desktopHasNormalWindow(candidate, windows, null) ? null : candidate;
+}
+
 function getNearestNonEmptyDesktop(desktops, windows, startIndex) {
   for (var index = startIndex - 1; index >= 0; index--) {
     if (desktopHasNormalWindow(desktops[index], windows, null))
