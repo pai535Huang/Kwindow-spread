@@ -618,9 +618,21 @@ test('reconciliation restores MRU focus before removing an active middle empty',
   const h = loadScript({ windows: [previous, other], desktops: [d0, d1, d2, d3] });
   h.workspace.windowActivated.fire(previous);
   h.workspace.currentDesktop = d1;
+  const originalRemove = h.workspace.removeDesktop.bind(h.workspace);
+  let currentAtRemoval = null;
+  let activeAtRemoval = null;
+  h.workspace.removeDesktop = (desktop) => {
+    if (desktop === d1) {
+      currentAtRemoval = h.workspace.currentDesktop;
+      activeAtRemoval = h.workspace.activeWindow;
+    }
+    originalRemove(desktop);
+  };
 
   h.context.reconcileTrailingSpareDesktops(true);
 
+  assert.equal(currentAtRemoval, d0);
+  assert.equal(activeAtRemoval, previous);
   assert.equal(h.workspace.activeWindow, previous);
   assert.equal(h.workspace.currentDesktop, d0);
   assert.deepEqual([...h.workspace.desktops], [d0, d2, d3]);
@@ -823,15 +835,17 @@ test('does not change focus or desktops when removal is unavailable', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const occupied = makeWindow({ caption: 'Browser', desktops: [d0] });
-  const h = loadScript({ windows: [occupied], desktops: [d0, d1] });
+  const dialog = makeWindow({ caption: 'Dialog', dialog: true, desktops: [d1] });
+  const h = loadScript({ windows: [occupied, dialog], desktops: [d0, d1] });
+  h.workspace.windowActivated.fire(occupied);
   h.workspace.currentDesktop = d1;
-  h.workspace.activeWindow = occupied;
+  h.workspace.activeWindow = dialog;
   delete h.workspace.removeDesktop;
 
-  h.context.reconcileTrailingSpareDesktops(false);
+  h.context.reconcileTrailingSpareDesktops(true);
 
   assert.equal(h.workspace.currentDesktop, d1);
-  assert.equal(h.workspace.activeWindow, occupied);
+  assert.equal(h.workspace.activeWindow, dialog);
   assert.deepEqual([...h.workspace.desktops], [d0, d1]);
 });
 
@@ -868,13 +882,21 @@ test('reconciliation recognizes an active desktop removed before removeDesktop t
   h.workspace.currentDesktop = d1;
   h.workspace.activeWindow = null;
   const originalRemove = h.workspace.removeDesktop.bind(h.workspace);
+  let currentAtRemoval = null;
+  let activeAtRemoval = null;
   h.workspace.removeDesktop = (desktop) => {
+    if (desktop === d1) {
+      currentAtRemoval = h.workspace.currentDesktop;
+      activeAtRemoval = h.workspace.activeWindow;
+    }
     originalRemove(desktop);
     if (desktop === d1) throw new Error('late D-Bus error');
   };
 
   h.context.reconcileTrailingSpareDesktops(true);
 
+  assert.equal(currentAtRemoval, d0);
+  assert.equal(activeAtRemoval, browser);
   assert.deepEqual([...h.workspace.desktops], [d0, d3]);
   assert.equal(h.context.reservationCreatedDesktops.has(d1), false);
   assert.equal(h.workspace.currentDesktop, d0);
@@ -901,6 +923,39 @@ test('one no-op removal does not stop later empty removals', () => {
   assert.equal(h.workspace.desktops.includes(d2), false);
   assert.equal(h.workspace.desktops.includes(d3), true);
   assert.match(h.printed.join('\n'), /failed to remove virtual desktop/);
+});
+
+[
+  ['no-op', () => {}],
+  ['throwing', () => { throw new Error('busy'); }],
+].forEach(([failureKind, failRemoval]) => {
+  test(`${failureKind} active-desktop removal rolls back the pre-removal focus transition`, () => {
+    const d0 = makeDesktop(0);
+    const d1 = makeDesktop(1);
+    const d2 = makeDesktop(2);
+    const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+    const dialog = makeWindow({ caption: 'Dialog', dialog: true, desktops: [d1] });
+    const h = loadScript({ windows: [browser, dialog], desktops: [d0, d1, d2] });
+    h.workspace.windowActivated.fire(browser);
+    h.workspace.currentDesktop = d1;
+    h.workspace.activeWindow = dialog;
+    let currentAtRemoval = null;
+    let activeAtRemoval = null;
+    h.workspace.removeDesktop = (desktop) => {
+      if (desktop !== d1) return;
+      currentAtRemoval = h.workspace.currentDesktop;
+      activeAtRemoval = h.workspace.activeWindow;
+      failRemoval();
+    };
+
+    h.context.reconcileTrailingSpareDesktops(true);
+
+    assert.equal(currentAtRemoval, d0);
+    assert.equal(activeAtRemoval, browser);
+    assert.equal(h.workspace.desktops.includes(d1), true);
+    assert.equal(h.workspace.currentDesktop, d1);
+    assert.equal(h.workspace.activeWindow, dialog);
+  });
 });
 
 test('a replaced removal target is resolved by stable id before removal', () => {

@@ -770,7 +770,7 @@ function reconcileTrailingSpareDesktops(restorePreviousFocus) {
   var activeDesktop = getCurrentDesktop();
   var activeIndex = desktops.indexOf(activeDesktop);
   var activeDesktopIsEmpty = !desktopHasNormalWindow(activeDesktop, windows, null);
-  var removeActiveDesktop = activeDesktop !== spare && activeDesktopIsEmpty &&
+  var removeActiveDesktop = !sameDesktopIdentity(activeDesktop, spare) && activeDesktopIsEmpty &&
     !isDesktopReserved(activeDesktop);
 
   if (!removeActiveDesktop && restorePreviousFocus) {
@@ -781,19 +781,47 @@ function reconcileTrailingSpareDesktops(restorePreviousFocus) {
   }
 
   desktops.forEach(function (desktop) {
-    if (desktop === spare)
+    if (sameDesktopIdentity(desktop, spare))
       return;
 
-    var removed = removeDesktopIfStillEmpty(desktop);
-    if (desktop !== activeDesktop || !removed)
-      return;
-
-    if (previousWindow)
-      activateWindow(previousWindow);
+    if (removeActiveDesktop && sameDesktopIdentity(desktop, activeDesktop))
+      removeActiveDesktopIfStillEmpty(desktop, previousWindow, desktops, windows, activeIndex);
     else
-      activateDesktop(getNearestNonEmptyDesktop(desktops, windows, activeIndex));
+      removeDesktopIfStillEmpty(desktop);
   });
   return spare;
+}
+
+function removeActiveDesktopIfStillEmpty(desktop, previousWindow, desktops, windows, activeIndex) {
+  var originalDesktop = getCurrentDesktop();
+  var originalActiveWindow = workspace.activeWindow || null;
+
+  if (previousWindow)
+    activateWindow(previousWindow);
+  else
+    activateDesktop(getNearestNonEmptyDesktop(desktops, windows, activeIndex));
+
+  if (sameDesktopIdentity(getCurrentDesktop(), desktop)) {
+    restoreDesktopRemovalFocus(originalDesktop, originalActiveWindow);
+    return false;
+  }
+
+  var removed = removeDesktopIfStillEmpty(desktop);
+  if (!removed)
+    restoreDesktopRemovalFocus(originalDesktop, originalActiveWindow);
+  return removed;
+}
+
+function restoreDesktopRemovalFocus(desktop, activeWindow) {
+  if (resolveDesktopReference(desktop, getDesktops()))
+    activateDesktop(desktop);
+
+  if (!activeWindow) {
+    workspace.activeWindow = null;
+    return;
+  }
+  if (getAllWindows().indexOf(activeWindow) >= 0)
+    workspace.activeWindow = activeWindow;
 }
 
 function scheduleDesktopReconciliation(restorePreviousFocus) {
