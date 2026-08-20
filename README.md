@@ -55,7 +55,7 @@ org.kde.spectacle
 
 Patterns match the app ID, resource class, and resource name, including XWayland `WM_CLASS`. Window titles are not matched.
 
-Configuration changes take effect immediately.
+After selecting **Apply**, changes are reloaded automatically on the next normal window event. No script reload or global KWin reconfiguration is required.
 
 ## Update and uninstall
 

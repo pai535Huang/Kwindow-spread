@@ -1,6 +1,7 @@
 var WINDOW_CLOSED_DELAY_MS = 300;
 var IDENTITY_DEBOUNCE_MS = 50;
 var IDENTITY_DEADLINE_MS = 1000;
+var CONFIG_REFRESH_TIMEOUT_MS = 1500;
 
 var DEFAULT_RULES = {
   auxiliaryDialogTitles: [
@@ -33,6 +34,7 @@ var normalFocusMru = [];
 var lastDesktopByWindow = new Map();
 var connectedWindows = new Set();
 var placementStates = new Map();
+var placingWindows = new Set();
 var config = loadConfig();
 
 function loadConfig() {
@@ -397,6 +399,7 @@ function restoreFocus(context) {
 var activeTimers = [];
 var desktopReconciliationTimer = null;
 var restorePreviousFocusAfterReconciliation = false;
+var restoreFocusContextAfterReconciliation = null;
 
 function scheduleTimer(callback, delayMs) {
   var timer = new QTimer();
@@ -423,6 +426,44 @@ function cancelTimer(timer) {
   timer.stop();
   if (typeof timer.deleteLater === 'function')
     timer.deleteLater();
+}
+
+function requestScriptConfigRefresh(callback) {
+  var finished = false;
+  var timeoutTimer = null;
+  function finish() {
+    if (finished)
+      return;
+    finished = true;
+    cancelTimer(timeoutTimer);
+    refreshConfig();
+    if (typeof callback === 'function') {
+      try {
+        callback();
+      } catch (error) {
+        print('Kwindow-spread: failed to apply refreshed config: ' + error);
+      }
+    }
+  }
+
+  try {
+    callDBus(
+      'org.kde.KWin',
+      '/Scripting',
+      'org.kde.kwin.Scripting',
+      'start',
+      finish
+    );
+    if (!finished) {
+      timeoutTimer = scheduleTimer(function () {
+        timeoutTimer = null;
+        finish();
+      }, CONFIG_REFRESH_TIMEOUT_MS);
+    }
+  } catch (error) {
+    print('Kwindow-spread: failed to refresh script config: ' + error);
+    finish();
+  }
 }
 
 function ensureTrailingSpareDesktop(creationBudget) {
@@ -495,7 +536,12 @@ function beginIdentitySettling(window, context, decision) {
     sourceDesktop: context.desktop,
     sourceFocusWindow: context.focusWindow,
     initialKind: decision.kind,
+    initialKeepCurrentFocus: config.keepCurrentFocus,
+    expectedActiveWindow: workspace.activeWindow || null,
+    expectedCurrentDesktop: getCurrentDesktop(),
     expectedPlacement: getWindowPlacement(window),
+    configRefreshPending: false,
+    identityDeadlineReached: false,
     corrected: false,
     debounceTimer: null,
     deadlineTimer: null,
@@ -523,7 +569,7 @@ function beginIdentitySettling(window, context, decision) {
     state.deadlineTimer = null;
     recheckWindowIdentity(window, true);
   }, IDENTITY_DEADLINE_MS);
-  return true;
+  return state;
 }
 
 function scheduleIdentityRecheck(window) {
@@ -557,6 +603,12 @@ function recheckWindowIdentity(window, atDeadline) {
   if (!state || state.corrected || getAllWindows().indexOf(window) < 0) {
     finishIdentitySettling(window);
     scheduleDesktopReconciliation(false);
+    return;
+  }
+
+  if (state.configRefreshPending) {
+    if (atDeadline)
+      state.identityDeadlineReached = true;
     return;
   }
 
@@ -607,6 +659,30 @@ function recheckWindowIdentity(window, atDeadline) {
     finishIdentitySettling(window);
     scheduleDesktopReconciliation(false);
   }
+}
+
+function applyRefreshedConfigToWindow(window) {
+  var state = placementStates.get(window);
+  if (!state || getAllWindows().indexOf(window) < 0)
+    return;
+
+  var context = {
+    desktop: state.sourceDesktop,
+    focusWindow: state.sourceFocusWindow,
+  };
+  var windowWasActive = workspace.activeWindow === window;
+  var sourceFocusWasActive = workspace.activeWindow === state.sourceFocusWindow;
+  var initiallyKeptFocus = state.initialKeepCurrentFocus;
+  var focusUnchanged = workspace.activeWindow === state.expectedActiveWindow &&
+    sameDesktopIdentity(getCurrentDesktop(), state.expectedCurrentDesktop);
+
+  recheckWindowIdentity(window, false);
+  if (!focusUnchanged)
+    return;
+  if (config.keepCurrentFocus)
+    restoreFocus(context);
+  else if (windowWasActive || (initiallyKeptFocus && sourceFocusWasActive))
+    activateWindow(window);
 }
 
 function reconcileTrailingSpareDesktops(restorePreviousFocus) {
@@ -694,18 +770,27 @@ function restoreDesktopRemovalFocus(desktop, activeWindow) {
     workspace.activeWindow = activeWindow;
 }
 
-function scheduleDesktopReconciliation(restorePreviousFocus) {
+function scheduleDesktopReconciliation(restorePreviousFocus, restoreFocusContext) {
   restorePreviousFocusAfterReconciliation = restorePreviousFocusAfterReconciliation || !!restorePreviousFocus;
+  if (restorePreviousFocus)
+    restoreFocusContextAfterReconciliation = restoreFocusContext || restoreFocusContextAfterReconciliation;
   if (desktopReconciliationTimer)
     return;
 
   desktopReconciliationTimer = scheduleTimer(function () {
     desktopReconciliationTimer = null;
     var shouldRestorePreviousFocus = restorePreviousFocusAfterReconciliation;
+    var expectedFocusContext = restoreFocusContextAfterReconciliation;
     restorePreviousFocusAfterReconciliation = false;
+    restoreFocusContextAfterReconciliation = null;
     if (placementStates.size > 0) {
-      scheduleDesktopReconciliation(shouldRestorePreviousFocus);
+      scheduleDesktopReconciliation(shouldRestorePreviousFocus, expectedFocusContext);
       return;
+    }
+    if (expectedFocusContext &&
+        (workspace.activeWindow !== expectedFocusContext.activeWindow ||
+         !sameDesktopIdentity(getCurrentDesktop(), expectedFocusContext.desktop))) {
+      shouldRestorePreviousFocus = false;
     }
     reconcileTrailingSpareDesktops(shouldRestorePreviousFocus);
   }, WINDOW_CLOSED_DELAY_MS);
@@ -735,8 +820,26 @@ function onWindowAdded(window) {
       : getPreviousActivationWindow(window),
   };
   trackWindow(window);
-  var decision = placeWindowImmediately(window, context);
-  if (!beginIdentitySettling(window, context, decision))
+  var decision = null;
+  placingWindows.add(window);
+  try {
+    decision = placeWindowImmediately(window, context);
+  } finally {
+    placingWindows.delete(window);
+  }
+  var state = beginIdentitySettling(window, context, decision);
+  if (state) {
+    state.configRefreshPending = true;
+    requestScriptConfigRefresh(function () {
+      if (placementStates.get(window) !== state)
+        return;
+      state.configRefreshPending = false;
+      applyRefreshedConfigToWindow(window);
+      if (state.identityDeadlineReached && placementStates.get(window) === state)
+        recheckWindowIdentity(window, true);
+    });
+  }
+  if (!state)
     scheduleDesktopReconciliation(false);
 }
 
@@ -745,13 +848,24 @@ function onWindowRemoved(window) {
     return;
 
   refreshConfig();
+  var refreshNeeded = shouldTreatAsNormalWindow(toRuleWindow(window));
   var restorePreviousFocus = normalFocusMru[0] === window || workspace.activeWindow === window;
+  var restoreFocusContext = {
+    desktop: getCurrentDesktop(),
+    activeWindow: workspace.activeWindow || null,
+  };
   removeFromActivationMru(window);
   removeFromNormalFocusMru(window);
   finishIdentitySettling(window);
   connectedWindows.delete(window);
   lastDesktopByWindow.delete(window);
-  scheduleDesktopReconciliation(restorePreviousFocus);
+  if (refreshNeeded) {
+    requestScriptConfigRefresh(function () {
+      scheduleDesktopReconciliation(restorePreviousFocus, restoreFocusContext);
+    });
+  } else {
+    scheduleDesktopReconciliation(restorePreviousFocus, restoreFocusContext);
+  }
 }
 
 function onWindowDesktopChanged(window) {
@@ -760,11 +874,19 @@ function onWindowDesktopChanged(window) {
 
   refreshConfig();
   var state = placementStates.get(window);
-  if (state && !sameWindowPlacement(getWindowPlacement(window), state.expectedPlacement))
+  if (state && !sameWindowPlacement(getWindowPlacement(window), state.expectedPlacement)) {
     finishIdentitySettling(window);
+    state = null;
+  }
 
   lastDesktopByWindow.set(window, getWindowDesktop(window));
-  scheduleDesktopReconciliation(false);
+  if (!state && !placingWindows.has(window) && shouldTreatAsNormalWindow(toRuleWindow(window))) {
+    requestScriptConfigRefresh(function () {
+      scheduleDesktopReconciliation(false);
+    });
+  } else {
+    scheduleDesktopReconciliation(false);
+  }
 }
 
 function trackWindow(window) {

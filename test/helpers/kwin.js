@@ -137,7 +137,8 @@ export function ruleWindow(overrides = {}) {
   };
 }
 
-export function loadScript({ config = {}, windows = [], desktops = [], workspaceOverrides = {} } = {}) {
+export function loadScript({ config = {}, windows = [], desktops = [], workspaceOverrides = {}, autoCompleteDBus = true } = {}) {
+  const cachedConfig = { ...config };
   const desktopList = listLike(desktops);
   const currentDesktop = desktops[0] ?? null;
   const workspace = {
@@ -213,19 +214,46 @@ export function loadScript({ config = {}, windows = [], desktops = [], workspace
 
   const printed = [];
   const callDBusCalls = [];
+  const pendingDBusCalls = [];
+  function reparseDBusCall(call) {
+    const args = call.args;
+    if (!call.reparsed && args[0] === 'org.kde.KWin' && args[1] === '/Scripting' && args[2] === 'org.kde.kwin.Scripting' && args[3] === 'start') {
+      for (const key of Object.keys(cachedConfig)) delete cachedConfig[key];
+      Object.assign(cachedConfig, config);
+      call.reparsed = true;
+    }
+  }
+  function reparseNextDBusCall() {
+    const call = pendingDBusCalls[0];
+    if (!call) return false;
+    reparseDBusCall(call);
+    return true;
+  }
+  function completeNextDBusCall() {
+    const call = pendingDBusCalls.shift();
+    if (!call) return false;
+    reparseDBusCall(call);
+
+    const args = call.args;
+    const callback = args.at(-1);
+    if (typeof callback === 'function') callback();
+    return true;
+  }
   const sandbox = {
     workspace,
     print(...args) {
       printed.push(args.join(' '));
     },
     readConfig(key, fallback) {
-      if (key in config) return config[key];
+      if (key in cachedConfig) return cachedConfig[key];
       if (Array.isArray(fallback)) return undefined;
       return fallback;
     },
     QTimer,
     callDBus(...args) {
       callDBusCalls.push(args);
+      pendingDBusCalls.push({ args, reparsed: false });
+      if (autoCompleteDBus) completeNextDBusCall();
     },
     console,
   };
@@ -240,6 +268,8 @@ export function loadScript({ config = {}, windows = [], desktops = [], workspace
     printed,
     callDBusCalls,
     config,
+    completeNextDBusCall,
+    reparseNextDBusCall,
     loadWindow(window) {
       workspace.windows.push(window);
     },

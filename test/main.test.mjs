@@ -61,8 +61,9 @@ test('keeps Plasma 6 package metadata and release commands consistent', () => {
   assert.match(readmeSource, /kpackagetool6 --type KWin\/Script --remove kwindow-spread/);
 });
 
-test('documents immediate configuration updates and reloads after package updates', () => {
-  assert.match(readmeSource, /Configuration changes take effect immediately\./);
+test('documents automatic configuration updates and reloads after package updates', () => {
+  assert.match(readmeSource, /changes are reloaded automatically on the next normal window event/i);
+  assert.match(readmeSource, /No script reload or global KWin reconfiguration is required\./);
   assert.match(readmeSource, /After updating, reload the script\./);
 });
 
@@ -70,10 +71,6 @@ test('release files do not advertise obsolete desktop creation or legacy support
   const releaseSources = [readmeSource, metadataSource, configSchemaSource, configUiSource].join('\n');
   assert.doesNotMatch(releaseSources, /CreateVirtualDesktops/);
   assert.doesNotMatch(releaseSources, /kpackagetool5|On Plasma 5|Use .*Plasma 5/i);
-  assert.doesNotMatch(
-    readmeSource,
-    /next window[^\n]{0,40}(?:refresh|reload)|(?:refresh|reload)[^\n]{0,40}next window/i,
-  );
   assert.doesNotMatch(
     readmeSource,
     /500\s*ms\s+(?:before|then)|(?:wait|waiting|waits|delays)\b[^\n]{0,40}\b500\s*ms/i,
@@ -553,7 +550,7 @@ test('filters out non-normal top-level windows', () => {
   assert.equal(context.shouldTreatAsNormalWindow(ruleWindow({ title: 'App' })), true);
 });
 
-test('window add and remove events do not trigger asynchronous D-Bus config refreshes', () => {
+test('internal popup events do not refresh script config or globally reconfigure KWin', () => {
   const desktop = makeDesktop(0);
   const h = loadScript({ desktops: [desktop] });
   const titlebarMenu = makeWindow({ normalWindow: false, popupMenu: true, desktops: [desktop] });
@@ -566,6 +563,143 @@ test('window add and remove events do not trigger asynchronous D-Bus config refr
   assert.deepEqual(h.callDBusCalls, []);
 });
 
+test('a script-only refresh reparses cached config and corrects a new same-group window', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Thunderbird', desktopFileName: 'org.mozilla.Thunderbird', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1], autoCompleteDBus: false });
+  h.config.SameDesktopWindowGroups = '*org.mozilla.Thunderbird*';
+
+  const fresh = makeWindow({ caption: 'Compose', desktopFileName: 'org.mozilla.Thunderbird', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.windowAdded.fire(fresh);
+
+  assert.equal(fresh.desktops[0], d1);
+  assert.deepEqual(h.callDBusCalls[0].slice(0, 4), [
+    'org.kde.KWin',
+    '/Scripting',
+    'org.kde.kwin.Scripting',
+    'start',
+  ]);
+  assert.equal(h.callDBusCalls.some((args) => args[1] === '/KWin' || args[3] === 'reconfigure'), false);
+
+  assert.equal(h.completeNextDBusCall(), true);
+  assert.equal(fresh.desktops[0], d0);
+  assert.deepEqual([...h.context.config.rules.sameDesktopGroups], ['*org.mozilla.Thunderbird*']);
+});
+
+test('refreshes each rapid normal window event independently', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1], autoCompleteDBus: false });
+
+  const first = makeWindow({ caption: 'First', desktops: [d0] });
+  h.loadWindow(first);
+  h.workspace.windowAdded.fire(first);
+  const second = makeWindow({ caption: 'Second', desktops: [d0] });
+  h.loadWindow(second);
+  h.workspace.windowAdded.fire(second);
+
+  assert.equal(h.callDBusCalls.length, 2);
+  assert.equal(h.completeNextDBusCall(), true);
+  assert.equal(h.completeNextDBusCall(), true);
+});
+
+test('continues placement when requesting a script config refresh throws', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Editor', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1] });
+  h.context.callDBus = function () { throw new Error('D-Bus unavailable'); };
+
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.windowAdded.fire(fresh);
+
+  assert.equal(fresh.desktops[0], d1);
+  assert.match(h.printed.at(-1), /failed to refresh script config: Error: D-Bus unavailable/);
+});
+
+test('a delayed config refresh does not override a newer user focus', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const focused = makeWindow({ caption: 'Source', desktops: [d0] });
+  const other = makeWindow({ caption: 'Other', desktops: [d1] });
+  const h = loadScript({ windows: [focused, other], desktops: [d0, d1, d2], autoCompleteDBus: false });
+  h.workspace.currentDesktop = d0;
+  h.workspace.activeWindow = focused;
+  h.config.KeepCurrentFocus = true;
+
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.windowAdded.fire(fresh);
+  h.workspace.currentDesktop = d1;
+  h.workspace.activeWindow = other;
+  h.workspace.windowActivated.fire(other);
+  h.completeNextDBusCall();
+
+  assert.equal(h.workspace.activeWindow, other);
+  assert.equal(h.workspace.currentDesktop, d1);
+});
+
+test('a delayed config refresh does not override a desktop-only user change', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const focused = makeWindow({ caption: 'Source', desktops: [d0] });
+  const h = loadScript({ windows: [focused], desktops: [d0, d1, d2], autoCompleteDBus: false });
+  h.workspace.currentDesktop = d0;
+  h.workspace.activeWindow = focused;
+  h.config.KeepCurrentFocus = true;
+
+  const fresh = makeWindow({ caption: 'Terminal', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.windowAdded.fire(fresh);
+  h.workspace.currentDesktop = d1;
+  h.completeNextDBusCall();
+
+  assert.equal(h.workspace.activeWindow, fresh);
+  assert.equal(h.workspace.currentDesktop, d1);
+});
+
+test('keeps identity state until a config refresh completing at the deadline is applied', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Thunderbird', desktopFileName: 'org.mozilla.Thunderbird', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1], autoCompleteDBus: false });
+  h.config.SameDesktopWindowGroups = '*org.mozilla.Thunderbird*';
+
+  const fresh = makeWindow({ caption: 'Compose', desktopFileName: 'org.mozilla.Thunderbird', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.windowAdded.fire(fresh);
+  assert.equal(h.QTimer.fireInterval(1000), true);
+  assert.equal(h.context.placementStates.has(fresh), true);
+
+  h.completeNextDBusCall();
+  assert.equal(fresh.desktops[0], d0);
+  assert.equal(h.context.placementStates.has(fresh), false);
+});
+
+test('a refresh timeout still reads a cache reparsed before the delayed reply', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const existing = makeWindow({ caption: 'Thunderbird', desktopFileName: 'org.mozilla.Thunderbird', desktops: [d0] });
+  const h = loadScript({ windows: [existing], desktops: [d0, d1], autoCompleteDBus: false });
+  h.config.SameDesktopWindowGroups = '*org.mozilla.Thunderbird*';
+
+  const fresh = makeWindow({ caption: 'Compose', desktopFileName: 'org.mozilla.Thunderbird', desktops: [d0] });
+  h.loadWindow(fresh);
+  h.workspace.windowAdded.fire(fresh);
+  assert.equal(h.reparseNextDBusCall(), true);
+  assert.equal(h.QTimer.fireInterval(1000), true);
+  assert.equal(h.QTimer.fireInterval(1500), true);
+
+  assert.equal(fresh.desktops[0], d0);
+  assert.equal(h.context.placementStates.has(fresh), false);
+});
+
 test('window addition uses configuration applied after script startup', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
@@ -574,6 +708,7 @@ test('window addition uses configuration applied after script startup', () => {
     windows: [existing],
     desktops: [d0, d1],
     config: { SourceDesktopApplications: 'spectacle' },
+    autoCompleteDBus: false,
   });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = existing;
@@ -583,6 +718,7 @@ test('window addition uses configuration applied after script startup', () => {
   const fresh = makeWindow({ caption: 'Capture', resourceClass: 'spectacle', desktops: [d0] });
   h.loadWindow(fresh);
   h.workspace.windowAdded.fire(fresh);
+  h.completeNextDBusCall();
 
   assert.equal(fresh.desktops[0], d1);
   assert.deepEqual([...h.context.config.rules.sourceDesktopApplications], []);
@@ -594,7 +730,7 @@ test('window addition uses focus configuration applied after script startup', ()
   const d2 = makeDesktop(2);
   const focused = makeWindow({ caption: 'Editor', desktops: [d0] });
   const other = makeWindow({ caption: 'Browser', desktops: [d1] });
-  const h = loadScript({ windows: [focused, other], desktops: [d0, d1, d2] });
+  const h = loadScript({ windows: [focused, other], desktops: [d0, d1, d2], autoCompleteDBus: false });
   h.workspace.currentDesktop = d0;
   h.workspace.activeWindow = focused;
   h.workspace.windowActivated.fire(focused);
@@ -605,6 +741,7 @@ test('window addition uses focus configuration applied after script startup', ()
   h.workspace.activeWindow = fresh;
   h.workspace.windowActivated.fire(fresh);
   h.workspace.windowAdded.fire(fresh);
+  h.completeNextDBusCall();
 
   assert.equal(h.workspace.activeWindow, focused);
   assert.equal(h.workspace.currentDesktop, d0);
@@ -836,11 +973,12 @@ test('window removal uses cleanup configuration applied after script startup', (
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const closing = makeWindow({ caption: 'Editor', desktops: [d0] });
-  const h = loadScript({ windows: [closing], desktops: [d0, d1] });
+  const h = loadScript({ windows: [closing], desktops: [d0, d1], autoCompleteDBus: false });
   h.config.RemoveEmptyVirtualDesktops = false;
 
   h.unloadWindow(closing);
   h.workspace.windowRemoved.fire(closing);
+  h.completeNextDBusCall();
   h.QTimer.fireAll();
 
   assert.deepEqual([...h.workspace.desktops], [d0, d1]);
@@ -850,10 +988,11 @@ test('desktop changes use cleanup configuration applied after script startup', (
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
   const moving = makeWindow({ caption: 'Editor', desktops: [d0] });
-  const h = loadScript({ windows: [moving], desktops: [d0, d1] });
+  const h = loadScript({ windows: [moving], desktops: [d0, d1], autoCompleteDBus: false });
   h.config.RemoveEmptyVirtualDesktops = false;
 
   moving.desktops = [d1];
+  h.completeNextDBusCall();
   h.QTimer.fireAll();
 
   assert.equal(h.workspace.desktops.includes(d0), true);
@@ -2143,6 +2282,30 @@ test('closing a window restores previous focus and retains the trailing spare', 
   assert.equal(h.workspace.currentDesktop, d0);
   assert.equal(h.workspace.activeWindow, browser);
   assert.deepEqual([...h.workspace.desktops], [d0, d3]);
+});
+
+test('closing cleanup does not override a newer user focus context', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const browser = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const closing = makeWindow({ caption: 'Editor', desktops: [d2] });
+  const h = loadScript({ windows: [browser, closing], desktops: [d0, d1, d2, d3], autoCompleteDBus: false });
+  h.workspace.windowActivated.fire(browser);
+  h.workspace.windowActivated.fire(closing);
+  h.workspace.currentDesktop = d2;
+  h.workspace.activeWindow = closing;
+
+  h.unloadWindow(closing);
+  h.workspace.windowRemoved.fire(closing);
+  h.workspace.currentDesktop = d3;
+  h.workspace.activeWindow = null;
+  h.completeNextDBusCall();
+  h.QTimer.fireAll();
+
+  assert.equal(h.workspace.currentDesktop, d3);
+  assert.equal(h.workspace.activeWindow, null);
 });
 
 test('closing the final window prefers its current desktop over an existing trailing spare', () => {
