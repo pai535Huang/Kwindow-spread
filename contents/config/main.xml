@@ -8,6 +8,9 @@
     <entry name="KeepCurrentFocus" type="bool">
       <default>false</default>
     </entry>
+    <entry name="RestorePreviousFocusOnClose" type="bool">
+      <default>true</default>
+    </entry>
     <entry name="RemoveEmptyVirtualDesktops" type="bool">
       <default>true</default>
     </entry>
