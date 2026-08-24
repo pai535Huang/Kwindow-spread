@@ -336,7 +336,8 @@ function recordActivation(window) {
   if (!window || getAllWindows().indexOf(window) < 0)
     return;
 
-  windowActivationGeneration++;
+  if (!isDesktopFocusFallbackWindow(window))
+    windowActivationGeneration++;
   removeFromActivationMru(window);
   activationMru.unshift(window);
   if (activationMru.length > 16)
@@ -349,6 +350,18 @@ function recordActivation(window) {
   normalFocusMru.unshift(window);
   if (normalFocusMru.length > 16)
     normalFocusMru.length = 16;
+}
+
+function isDesktopFocusFallbackWindow(window) {
+  if (!window)
+    return false;
+
+  var ruleWindow = toRuleWindow(window);
+  return !ruleWindow.normalWindow &&
+    ruleWindow.skipTaskbar &&
+    !ruleWindow.dialog &&
+    !ruleWindow.transient &&
+    ruleWindow.desktops.length === 0;
 }
 
 function removeFromActivationMru(window) {
@@ -783,6 +796,10 @@ function focusContextChangedAfterClose(context) {
 
   var activeWindow = workspace.activeWindow || null;
   if (activeWindow === context.activeWindow)
+    return false;
+
+  if (context.activeWindow === context.closingWindow &&
+      isDesktopFocusFallbackWindow(activeWindow))
     return false;
 
   return !(context.activeWindow === context.closingWindow && activeWindow === null);
