@@ -2424,6 +2424,42 @@ test('closing restores previous focus when KWin clears the active window before 
   assert.deepEqual([...h.workspace.desktops], [d0, d1, d3]);
 });
 
+test('closing restores previous focus when KWin activates its Plasma desktop fallback', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const previous = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const nearest = makeWindow({ caption: 'Files', desktops: [d1] });
+  const closing = makeWindow({ caption: 'Editor', desktops: [d2] });
+  const desktopFallback = makeWindow({
+    caption: '',
+    resourceClass: 'plasmashell',
+    normalWindow: false,
+    skipTaskbar: true,
+    desktops: [],
+  });
+  const h = loadScript({
+    windows: [previous, nearest, closing, desktopFallback],
+    desktops: [d0, d1, d2, d3],
+  });
+  h.workspace.windowActivated.fire(previous);
+  h.workspace.windowActivated.fire(closing);
+  h.workspace.currentDesktop = d2;
+  h.workspace.activeWindow = closing;
+
+  closing.closed.fire();
+  h.workspace.activeWindow = desktopFallback;
+  h.workspace.windowActivated.fire(desktopFallback);
+  h.unloadWindow(closing);
+  h.workspace.windowRemoved.fire(closing);
+  h.QTimer.fireAll();
+
+  assert.equal(h.workspace.currentDesktop, d0);
+  assert.equal(h.workspace.activeWindow, previous);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d3]);
+});
+
 test('closing uses the nearest desktop when restoration is disabled and KWin clears focus', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
