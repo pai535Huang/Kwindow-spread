@@ -25,9 +25,12 @@ Open the script's configuration dialog from the KWin Scripts page.
 | Setting | Default | Description |
 | --- | --- | --- |
 | Keep focus on the current window | Off | Prevents a newly opened window from taking focus. |
+| Return focus to the previously active window after closing the current window | On | Returns to the last active surviving normal window; when off, cleanup uses the nearest occupied virtual desktop. |
 | Remove extra empty virtual desktops | On | Removes redundant empty desktops while retaining one trailing spare. |
 | Windows that stay together | Empty | Places matching applications on the same desktop. |
 | Applications that stay on their original desktop | Empty | Excludes matching applications from automatic spreading. |
+
+With previous-focus restoration enabled, if a window opened from desktop 1 is spread to desktop 3, closing it returns to the prior window on desktop 1. When disabled, cleanup chooses the nearest occupied virtual desktop instead.
 
 Rules are case-insensitive and support `*` for any sequence of characters and `?` for one character.
 

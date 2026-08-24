@@ -40,6 +40,7 @@ var config = loadConfig();
 function loadConfig() {
   return {
     keepCurrentFocus: readBoolConfig('KeepCurrentFocus', false),
+    restorePreviousFocusOnClose: readBoolConfig('RestorePreviousFocusOnClose', true),
     removeEmptyVirtualDesktops: readBoolConfig('RemoveEmptyVirtualDesktops', true),
     rules: {
       sourceDesktopApplications: readStringListConfig('SourceDesktopApplications', []),
@@ -771,9 +772,12 @@ function restoreDesktopRemovalFocus(desktop, activeWindow) {
 }
 
 function scheduleDesktopReconciliation(restorePreviousFocus, restoreFocusContext) {
-  restorePreviousFocusAfterReconciliation = restorePreviousFocusAfterReconciliation || !!restorePreviousFocus;
-  if (restorePreviousFocus)
-    restoreFocusContextAfterReconciliation = restoreFocusContext || restoreFocusContextAfterReconciliation;
+  if (restoreFocusContext) {
+    restorePreviousFocusAfterReconciliation = !!restorePreviousFocus;
+    restoreFocusContextAfterReconciliation = restoreFocusContext;
+  } else {
+    restorePreviousFocusAfterReconciliation = restorePreviousFocusAfterReconciliation || !!restorePreviousFocus;
+  }
   if (desktopReconciliationTimer)
     return;
 
@@ -790,7 +794,7 @@ function scheduleDesktopReconciliation(restorePreviousFocus, restoreFocusContext
     if (expectedFocusContext &&
         (workspace.activeWindow !== expectedFocusContext.activeWindow ||
          !sameDesktopIdentity(getCurrentDesktop(), expectedFocusContext.desktop))) {
-      shouldRestorePreviousFocus = false;
+      return;
     }
     reconcileTrailingSpareDesktops(shouldRestorePreviousFocus);
   }, WINDOW_CLOSED_DELAY_MS);
@@ -861,10 +865,16 @@ function onWindowRemoved(window) {
   lastDesktopByWindow.delete(window);
   if (refreshNeeded) {
     requestScriptConfigRefresh(function () {
-      scheduleDesktopReconciliation(restorePreviousFocus, restoreFocusContext);
+      scheduleDesktopReconciliation(
+        restorePreviousFocus && config.restorePreviousFocusOnClose,
+        restoreFocusContext
+      );
     });
   } else {
-    scheduleDesktopReconciliation(restorePreviousFocus, restoreFocusContext);
+    scheduleDesktopReconciliation(
+      restorePreviousFocus && config.restorePreviousFocusOnClose,
+      restoreFocusContext
+    );
   }
 }
 

@@ -13,6 +13,16 @@
      </property>
     </widget>
    </item>
+   <item>
+    <widget class="QCheckBox" name="kcfg_RestorePreviousFocusOnClose">
+     <property name="text">
+      <string>Return focus to the previously active window after closing the current window</string>
+     </property>
+     <property name="checked">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
     <item>
      <widget class="QCheckBox" name="kcfg_RemoveEmptyVirtualDesktops">
       <property name="text">
