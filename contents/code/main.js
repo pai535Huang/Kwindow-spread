@@ -31,6 +31,7 @@ var DEFAULT_RULES = {
 
 var activationMru = [];
 var normalFocusMru = [];
+var windowActivationGeneration = 0;
 var lastDesktopByWindow = new Map();
 var connectedWindows = new Set();
 var placementStates = new Map();
@@ -335,6 +336,7 @@ function recordActivation(window) {
   if (!window || getAllWindows().indexOf(window) < 0)
     return;
 
+  windowActivationGeneration++;
   removeFromActivationMru(window);
   activationMru.unshift(window);
   if (activationMru.length > 16)
@@ -771,6 +773,21 @@ function restoreDesktopRemovalFocus(desktop, activeWindow) {
     workspace.activeWindow = activeWindow;
 }
 
+function focusContextChangedAfterClose(context) {
+  if (!context)
+    return false;
+  if (!sameDesktopIdentity(getCurrentDesktop(), context.desktop))
+    return true;
+  if (windowActivationGeneration !== context.activationGeneration)
+    return true;
+
+  var activeWindow = workspace.activeWindow || null;
+  if (activeWindow === context.activeWindow)
+    return false;
+
+  return !(context.activeWindow === context.closingWindow && activeWindow === null);
+}
+
 function scheduleDesktopReconciliation(restorePreviousFocus, restoreFocusContext) {
   if (restoreFocusContext) {
     restorePreviousFocusAfterReconciliation = !!restorePreviousFocus;
@@ -791,11 +808,8 @@ function scheduleDesktopReconciliation(restorePreviousFocus, restoreFocusContext
       scheduleDesktopReconciliation(shouldRestorePreviousFocus, expectedFocusContext);
       return;
     }
-    if (expectedFocusContext &&
-        (workspace.activeWindow !== expectedFocusContext.activeWindow ||
-         !sameDesktopIdentity(getCurrentDesktop(), expectedFocusContext.desktop))) {
+    if (focusContextChangedAfterClose(expectedFocusContext))
       return;
-    }
     reconcileTrailingSpareDesktops(shouldRestorePreviousFocus);
   }, WINDOW_CLOSED_DELAY_MS);
 }
@@ -857,6 +871,8 @@ function onWindowRemoved(window) {
   var restoreFocusContext = {
     desktop: getCurrentDesktop(),
     activeWindow: workspace.activeWindow || null,
+    activationGeneration: windowActivationGeneration,
+    closingWindow: window,
   };
   removeFromActivationMru(window);
   removeFromNormalFocusMru(window);

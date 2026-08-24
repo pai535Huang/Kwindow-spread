@@ -2399,6 +2399,98 @@ test('closing a window restores previous focus and retains the trailing spare', 
   assert.deepEqual([...h.workspace.desktops], [d0, d3]);
 });
 
+test('closing restores previous focus when KWin clears the active window before reconciliation', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const previous = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const nearest = makeWindow({ caption: 'Files', desktops: [d1] });
+  const closing = makeWindow({ caption: 'Editor', desktops: [d2] });
+  const h = loadScript({ windows: [previous, nearest, closing], desktops: [d0, d1, d2, d3] });
+  h.workspace.windowActivated.fire(previous);
+  h.workspace.windowActivated.fire(closing);
+  h.workspace.currentDesktop = d2;
+  h.workspace.activeWindow = closing;
+
+  closing.closed.fire();
+  h.workspace.activeWindow = null;
+  h.unloadWindow(closing);
+  h.workspace.windowRemoved.fire(closing);
+  h.QTimer.fireAll();
+
+  assert.equal(h.workspace.currentDesktop, d0);
+  assert.equal(h.workspace.activeWindow, previous);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d3]);
+});
+
+test('closing uses the nearest desktop when restoration is disabled and KWin clears focus', () => {
+  const d0 = makeDesktop(0);
+  const d1 = makeDesktop(1);
+  const d2 = makeDesktop(2);
+  const d3 = makeDesktop(3);
+  const previous = makeWindow({ caption: 'Browser', desktops: [d0] });
+  const nearest = makeWindow({ caption: 'Files', desktops: [d1] });
+  const closing = makeWindow({ caption: 'Editor', desktops: [d2] });
+  const h = loadScript({
+    windows: [previous, nearest, closing],
+    desktops: [d0, d1, d2, d3],
+    config: { RestorePreviousFocusOnClose: false },
+  });
+  h.workspace.windowActivated.fire(previous);
+  h.workspace.windowActivated.fire(closing);
+  h.workspace.currentDesktop = d2;
+  h.workspace.activeWindow = closing;
+
+  closing.closed.fire();
+  h.workspace.activeWindow = null;
+  h.unloadWindow(closing);
+  h.workspace.windowRemoved.fire(closing);
+  h.QTimer.fireAll();
+
+  assert.equal(h.workspace.currentDesktop, d1);
+  assert.deepEqual([...h.workspace.desktops], [d0, d1, d3]);
+});
+
+[
+  ['configuration refresh', false],
+  ['reconciliation delay', true],
+].forEach(([changeTiming, autoCompleteDBus]) => {
+  test(`closing cleanup preserves cleared focus after a newer activation during ${changeTiming}`, () => {
+    const d0 = makeDesktop(0);
+    const d1 = makeDesktop(1);
+    const d2 = makeDesktop(2);
+    const d3 = makeDesktop(3);
+    const previous = makeWindow({ caption: 'Previous', desktops: [d0] });
+    const userWindow = makeWindow({ caption: 'User', desktops: [d2] });
+    const closing = makeWindow({ caption: 'Closing', desktops: [d2] });
+    const h = loadScript({
+      windows: [previous, userWindow, closing],
+      desktops: [d0, d1, d2, d3],
+      autoCompleteDBus,
+    });
+    h.workspace.windowActivated.fire(previous);
+    h.workspace.windowActivated.fire(closing);
+    h.workspace.currentDesktop = d2;
+    h.workspace.activeWindow = closing;
+
+    closing.closed.fire();
+    h.workspace.activeWindow = null;
+    h.workspace.activeWindow = userWindow;
+    h.workspace.windowActivated.fire(userWindow);
+    h.workspace.activeWindow = null;
+    h.unloadWindow(closing);
+    h.workspace.windowRemoved.fire(closing);
+    if (!autoCompleteDBus)
+      h.completeNextDBusCall();
+    h.QTimer.fireAll();
+
+    assert.equal(h.workspace.currentDesktop, d2);
+    assert.equal(h.workspace.activeWindow, null);
+    assert.equal(h.workspace.desktops.includes(d2), true);
+  });
+});
+
 test('closing a window uses the nearest occupied desktop when previous-focus restoration is disabled', () => {
   const d0 = makeDesktop(0);
   const d1 = makeDesktop(1);
